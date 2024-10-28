@@ -4,12 +4,13 @@ from process_video import main as main_differentiated, main_simple
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'mp4', 'avi', 'mov', 'mkv'}
+app.config['ALLOWED_VIDEO_EXTENSIONS'] = {'mp4', 'avi', 'mov', 'mkv'}
+app.config['ALLOWED_AUDIO_EXTENSIONS'] = {'wav', 'mp3', 'flac'}
 
 
-def allowed_file(filename):
+def allowed_file(filename, allowed_extensions):
     """Check if file is of allowed type."""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
 
 @app.route('/')
@@ -18,44 +19,46 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/upload_simple', methods=['POST'])
-def upload_simple():
-    """Handle file upload and process without differentiating speakers."""
-    if 'file' not in request.files:
+@app.route('/upload_simple_video', methods=['POST'])
+def upload_simple_video():
+    """Handle video file upload and process without differentiating speakers."""
+    return handle_upload('video', main_simple, app.config['ALLOWED_VIDEO_EXTENSIONS'], "Simple")
+
+
+@app.route('/upload_differentiated_video', methods=['POST'])
+def upload_differentiated_video():
+    """Handle video file upload and process with differentiating speakers."""
+    return handle_upload('video', main_differentiated, app.config['ALLOWED_VIDEO_EXTENSIONS'], "Differentiated")
+
+
+@app.route('/upload_simple_audio', methods=['POST'])
+def upload_simple_audio():
+    """Handle audio file upload and process without differentiating speakers."""
+    return handle_upload('audio', main_simple, app.config['ALLOWED_AUDIO_EXTENSIONS'], "Simple")
+
+
+@app.route('/upload_differentiated_audio', methods=['POST'])
+def upload_differentiated_audio():
+    """Handle audio file upload and process with differentiating speakers."""
+    return handle_upload('audio', main_differentiated, app.config['ALLOWED_AUDIO_EXTENSIONS'], "Differentiated")
+
+
+def handle_upload(file_key, processing_function, allowed_extensions, version):
+    """Common function to handle file upload and processing."""
+    if file_key not in request.files:
         return redirect(url_for('index'))
 
-    file = request.files['file']
+    file = request.files[file_key]
 
-    if file and allowed_file(file.filename):
+    if file and allowed_file(file.filename, allowed_extensions):
         filename = file.filename
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
-        # Process video without speaker differentiation
-        output_file = main_simple(filepath)
+        # Process the uploaded file
+        output_file = processing_function(filepath)
 
-        return render_template('result.html', transcription_file=output_file, version="Simple")
-
-    return redirect(url_for('index'))
-
-
-@app.route('/upload_differentiated', methods=['POST'])
-def upload_differentiated():
-    """Handle file upload and process with differentiating speakers."""
-    if 'file' not in request.files:
-        return redirect(url_for('index'))
-
-    file = request.files['file']
-
-    if file and allowed_file(file.filename):
-        filename = file.filename
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-
-        # Process video with speaker differentiation
-        output_file = main_differentiated(filepath)
-
-        return render_template('result.html', transcription_file=output_file, version="Differentiated")
+        return render_template('result.html', transcription_file=output_file, version=version)
 
     return redirect(url_for('index'))
 

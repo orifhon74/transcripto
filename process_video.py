@@ -120,35 +120,44 @@ def save_transcription2(transcription, output_path="transcription.txt"):
     with open(output_path, "w") as f:
         f.write(transcription.replace('. ', '.\n'))
 
-def main_simple(video_path):
+
+def main_simple(file_path):
     """Simpler version without differentiating speakers"""
+    # Determine if the file is audio or video
+    is_audio = file_path.lower().endswith(('.wav', '.mp3', '.flac'))
+
     # Define paths for audio and output text
-    audio_path = "audio.wav"
-    output_path = f"static/uploads/{os.path.basename(video_path).split('.')[0]}_simple_transcription.txt"
+    audio_path = file_path if is_audio else "audio.wav"
+    output_path = f"static/uploads/{os.path.basename(file_path).split('.')[0]}_simple_transcription.txt"
 
-    # Step 1: Extract audio from the video
-    extract_audio(video_path, audio_path)
+    # Step 1: Extract audio if it's a video file
+    if not is_audio:
+        extract_audio(file_path, audio_path)
 
-    # Step 2: Transcribe the extracted audio
+    # Step 2: Transcribe the extracted audio or directly from audio file
     transcription = transcribe_audio2(audio_path)
 
     # Step 3: Save the transcriptions to a text file
     save_transcription2(transcription, output_path)
 
-    # Clean up intermediate audio file
-    if os.path.exists(audio_path):
+    # Clean up intermediate audio file if extracted from a video
+    if os.path.exists(audio_path) and not is_audio:
         os.remove(audio_path)
 
     return output_path
 
 
-def main(video_path):
-    # Define paths for audio and output text
-    audio_path = "audio.wav"
-    output_path = f"static/uploads/{os.path.basename(video_path).split('.')[0]}_transcription.txt"
+def main(file_path):
+    # Determine if the file is audio or video
+    is_audio = file_path.lower().endswith(('.wav', '.mp3', '.flac'))
 
-    # Step 1: Extract audio from the video
-    extract_audio(video_path, audio_path)
+    # Define paths for audio and output text
+    audio_path = file_path if is_audio else "audio.wav"
+    output_path = f"static/uploads/{os.path.basename(file_path).split('.')[0]}_transcription.txt"
+
+    # Step 1: Extract audio if it's a video file
+    if not is_audio:
+        extract_audio(file_path, audio_path)
 
     # Step 2: Perform diarization on the extracted audio to separate speakers
     speaker_segments = diarize_audio(audio_path)
