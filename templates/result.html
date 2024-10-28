@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Transcription Result</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Transcription Result</h1>
+        <p class="text-center">Transcription Type: {{ version }}</p>
+        <div class="row justify-content-center">
+            <div class="col-md-6 text-center">
+                <a href="{{ url_for('download_file', filename=transcription_file.split('/')[-1]) }}" class="btn btn-success">Download Transcription</a>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Go Back</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

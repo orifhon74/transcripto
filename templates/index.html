@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Video Transcription</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Video Transcription Service</h1>
+        <p class="text-center">Upload a video and choose the transcription method:</p>
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <form action="{{ url_for('upload_simple') }}" method="post" enctype="multipart/form-data" class="mb-3">
+                    <div class="form-group">
+                        <label for="fileSimple">Upload Video for Simple Transcription:</label>
+                        <input type="file" name="file" class="form-control" id="fileSimple" accept=".mp4,.avi,.mov,.mkv" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Simple Transcription</button>
+                </form>
+                <form action="{{ url_for('upload_differentiated') }}" method="post" enctype="multipart/form-data" class="mb-3">
+                    <div class="form-group">
+                        <label for="fileDiff">Upload Video for Speaker Differentiated Transcription:</label>
+                        <input type="file" name="file" class="form-control" id="fileDiff" accept=".mp4,.avi,.mov,.mkv" required>
+                    </div>
+                    <button type="submit" class="btn btn-secondary btn-block">Differentiated Transcription</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
