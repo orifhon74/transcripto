@@ -1,51 +1,10 @@
-# from moviepy.editor import VideoFileClip
-# import whisper
-# import os
-#
-# def extract_audio(video_path, audio_path="audio.wav"):
-#     """Extracts audio from video file"""
-#     video = VideoFileClip(video_path)
-#     video.audio.write_audiofile(audio_path, codec='pcm_s16le')
-#     return audio_path
-#
-# def transcribe_audio(audio_path):
-#     """Transcribe audio using Whisper"""
-#     model = whisper.load_model("base")  # You can choose a larger model if needed (e.g., "small", "medium", etc.)
-#     result = model.transcribe(audio_path)
-#     return result['text']
-#
-# def save_transcription(transcription, output_path="transcription.txt"):
-#     """Save the transcription in a text file"""
-#     with open(output_path, "w") as f:
-#         # f.write(transcription)
-#         # write the transcription and make new line after a period
-#         f.write(transcription.replace('. ', '.\n'))
-#
-# def main(video_path):
-#     # Define paths for audio and output text
-#     audio_path = "audio.wav"
-#     output_path = f"static/uploads/{os.path.basename(video_path).split('.')[0]}_transcription.txt"
-#
-#     # Step 1: Extract audio from the video
-#     extract_audio(video_path, audio_path)
-#
-#     # Step 2: Transcribe the extracted audio
-#     transcription = transcribe_audio(audio_path)
-#
-#     # Step 3: Save the transcriptions to a text file
-#     save_transcription(transcription, output_path)
-#
-#     # Clean up intermediate audio file
-#     if os.path.exists(audio_path):
-#         os.remove(audio_path)
-#
-#     return output_path
-
 from moviepy.editor import VideoFileClip
 from moviepy.editor import AudioFileClip
 from pyannote.audio import Pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import whisper
 import os
+import torch
 
 
 def extract_audio(video_path, audio_path="audio.wav"):
@@ -120,6 +79,49 @@ def save_transcription2(transcription, output_path="transcription.txt"):
     with open(output_path, "w") as f:
         f.write(transcription.replace('. ', '.\n'))
 
+# def summarize_text(text):
+#     """Summarize the transcribed text"""
+#     summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+#     summary = summarizer(
+#         text,
+#         max_length=200,  # Adjust to allow longer summaries if needed
+#         min_length=50,   # Set a minimum length that makes sense for your content
+#         do_sample=False
+#     )[0]['summary_text']
+#     return summary
+
+
+def load_summarization_model():
+    # Load the Llama 3.2 model optimized for summarization
+    model_id = "meta-llama/Llama-3.2-1B-Instruct"  # Example model ID
+
+    # Set up the tokenizer and model
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto", device_map="auto")
+
+    # Set up the pipeline for summarization using the Llama 3.2 model
+    summarization_pipe = pipeline("text2text-generation", model=model, tokenizer=tokenizer)
+
+    return summarization_pipe
+
+
+# Initialize the summarization pipeline globally
+summarization_pipe = load_summarization_model()
+
+
+def summarize_text(text):
+    # Provide clearer instructions to the Llama 3.2 model
+    # prompt = f"Provide a concise summary of the following text in 2-3 sentences:\n{text}\nSummary:"
+    prompt = f"Summarize the following text:\n{text}\nSummary:"
+
+    # Generate the summary
+    response = summarization_pipe(prompt, max_length=1000, min_length=30, do_sample=False)
+    summary = response[0]['generated_text']
+
+    # Post-process to remove the input text from the summary, if it appears
+    if "Summary:" in summary:
+        summary = summary.split("Summary:", 1)[1].strip()
+    return summary
 
 def main_simple(file_path):
     """Simpler version without differentiating speakers"""
@@ -140,11 +142,14 @@ def main_simple(file_path):
     # Step 3: Save the transcriptions to a text file
     save_transcription2(transcription, output_path)
 
+    # Step 4: Generate a summary of the transcription
+    summary = summarize_text(transcription)
+
     # Clean up intermediate audio file if extracted from a video
     if os.path.exists(audio_path) and not is_audio:
         os.remove(audio_path)
 
-    return output_path
+    return output_path, summary
 
 
 def main(file_path):
@@ -168,8 +173,11 @@ def main(file_path):
     # Step 4: Save the transcriptions to a text file
     save_transcription(transcription, output_path)
 
+    # Step 4: Generate a summary of the transcription
+    summary = summarize_text(transcription)
+
     # Clean up intermediate audio file
     if os.path.exists(audio_path):
         os.remove(audio_path)
 
-    return output_path
+    return output_path, summary

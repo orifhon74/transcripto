@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Video and Audio Transcription Service</title>
+    <title>Transcription and Summarization Service</title>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="container mt-5">
-        <h1 class="text-center">Transcription Service</h1>
-        <p class="text-center">Upload a video or audio file and choose the transcription method:</p>
+        <h1 class="text-center">Transcription and Summarization Service</h1>
+        <p class="text-center">Upload a video, audio, or text file and choose the processing method:</p>
+
         <div class="row justify-content-center">
             <div class="col-md-6">
                 <h3 class="text-center">Video Transcription</h3>
@@ -41,6 +42,15 @@
                         <input type="file" name="audio" class="form-control" id="audioDiff" accept=".wav,.mp3,.flac" required>
                     </div>
                     <button type="submit" class="btn btn-secondary btn-block">Differentiated Audio Transcription</button>
+                </form>
+
+                <h3 class="text-center mt-5">Text Summarization</h3>
+                <form action="{{ url_for('upload_text') }}" method="post" enctype="multipart/form-data" class="mb-3">
+                    <div class="form-group">
+                        <label for="textfile">Upload Text File for Summarization:</label>
+                        <input type="file" name="textfile" class="form-control" id="textfile" accept=".txt" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Generate Summary</button>
                 </form>
             </div>
         </div>

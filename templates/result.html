@@ -15,6 +15,16 @@
                 <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Go Back</a>
             </div>
         </div>
+
+        <!-- Show the summary section if available -->
+        <div class="row justify-content-center mt-4">
+            <div class="col-md-8">
+                {% if summary %}
+                <h3>Summary:</h3>
+                <p>{{ summary }}</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </body>
 </html>
