@@ -79,16 +79,8 @@ def save_transcription2(transcription, output_path="transcription.txt"):
     with open(output_path, "w") as f:
         f.write(transcription.replace('. ', '.\n'))
 
-# def summarize_text(text):
-#     """Summarize the transcribed text"""
-#     summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-#     summary = summarizer(
-#         text,
-#         max_length=200,  # Adjust to allow longer summaries if needed
-#         min_length=50,   # Set a minimum length that makes sense for your content
-#         do_sample=False
-#     )[0]['summary_text']
-#     return summary
+# summarization
+# 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
 
 
 def load_summarization_model():
