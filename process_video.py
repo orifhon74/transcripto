@@ -1,3 +1,4 @@
+# process_video.py
 import os
 import shlex
 import subprocess
@@ -37,7 +38,7 @@ def _pick_device():
     forced = os.getenv("DEVICE")
     if forced:
         return forced
-    # On Railway assume CPU
+    # Railway default: CPU
     return "cpu"
 
 def _pick_compute_type(device: str):
@@ -85,22 +86,25 @@ def _to_wav_mono_16k(src_path: str) -> str:
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return tmp.name
 
-# ---------------- Diarization: pyannote (accurate) ----------------
+# =================================================================
+#                 DIARIZATION IMPLEMENTATIONS
+# =================================================================
+
+# -------- Accurate: pyannote (optional; GPU-friendly, heavy) -----
 _HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
-_DIARIZATION_MODE = (os.getenv("DIARIZATION_MODE") or "fast").lower()  # fast | off (accurate if token+terms)
 
 def _diarize_pyannote(path: str):
-    """Try pyannote diarization. Returns (diarization, pretty_map) or (None, {})."""
-    if _DIARIZATION_MODE == "off":
-        print("[diar] mode=off")
-        return None, {}
-    if not _HF_TOKEN:
-        print("[diar] no HUGGINGFACE_TOKEN -> off")
-        return None, {}
+    """
+    Try pyannote diarization. Returns (diarization, pretty_map) or (None, {}).
+    Requires: pyannote.audio installed and model terms accepted on HF.
+    """
     try:
+        if not _HF_TOKEN:
+            print("[diar] pyannote disabled: no HUGGINGFACE_TOKEN")
+            return None, {}
         from pyannote.audio import Pipeline
-        # Must accept terms at https://huggingface.co/pyannote/speaker-diarization-3.1
         wav_path = _to_wav_mono_16k(path)
+
         pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
             use_auth_token=_HF_TOKEN,
@@ -118,7 +122,7 @@ def _diarize_pyannote(path: str):
 
         diar = pipeline({"audio": wav_path}, **kwargs)
 
-        # Build pretty label map S1/S2/...
+        # Pretty label map
         labels = []
         for _, _, lab in diar.itertracks(yield_label=True):
             if lab not in labels:
@@ -130,16 +134,132 @@ def _diarize_pyannote(path: str):
         print("[diar] pyannote disabled:", e)
         return None, {}
 
-def _assign_speakers(segments: List[Dict], diarization, pretty_map: Dict[str, str]) -> List[Dict]:
-    """Assign best-overlap speaker to each Whisper segment, then merge consecutive same-speaker lines."""
-    if diarization is None:
+# -------- Fast: VAD + resemblyzer + spectralcluster (CPU) --------
+def _fast_diarize_wav(wav_path: str, target_speakers: Optional[int] = None):
+    """
+    CPU-friendly diarization:
+      1) VAD -> speech regions
+      2) Sample 1.5s windows with 0.5s hop inside speech
+      3) Resemblyzer embeddings
+      4) Spectral clustering -> labels
+      5) Merge consecutive labels into turns [(start, end, 'S1'/'S2'...)]
+    """
+    try:
+        import webrtcvad
+        from pydub import AudioSegment
+        from resemblyzer import VoiceEncoder, preprocess_wav
+        from spectralcluster import SpectralClusterer
+        import numpy as np
+    except Exception as e:
+        print("[fast-diar] missing deps:", e)
+        return []
+
+    vad = webrtcvad.Vad(3)  # aggressive
+    sr = 16000
+    audio = AudioSegment.from_wav(wav_path).set_channels(1).set_frame_rate(sr)
+    raw = audio.raw_data
+
+    # --- VAD over 30ms frames
+    frame_ms = 30
+    bytes_per_sample = 2
+    frame_bytes = int(sr * (frame_ms / 1000.0) * bytes_per_sample)
+    frames = [raw[i:i + frame_bytes] for i in range(0, len(raw), frame_bytes)]
+    speech_flags = [len(fr) == frame_bytes and vad.is_speech(fr, sr) for fr in frames]
+
+    # --- Build regions
+    regions = []
+    i = 0
+    while i < len(speech_flags):
+        if speech_flags[i]:
+            s = i
+            while i < len(speech_flags) and speech_flags[i]:
+                i += 1
+            e = i
+            regions.append((s * frame_ms / 1000.0, e * frame_ms / 1000.0))
+        else:
+            i += 1
+
+    # prune and merge small gaps
+    MIN_REGION = 0.6
+    regions = [(s, e) for s, e in regions if (e - s) >= MIN_REGION]
+    merged = []
+    for s, e in regions:
+        if merged and (s - merged[-1][1]) < 0.3:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+    regions = merged
+    if not regions:
+        print("[fast-diar] no speech regions")
+        return []
+
+    # --- Sample windows
+    WIN = 1.5
+    HOP = 0.5
+    encoder = VoiceEncoder()
+    embed_times = []
+    embeds = []
+
+    for s, e in regions:
+        t = s
+        while t + WIN <= e:
+            seg = audio[int(t * 1000):int((t + WIN) * 1000)]
+            seg_path = wav_path + f".seg_{int(t * 1000)}_{int((t + WIN) * 1000)}.wav"
+            seg.export(seg_path, format="wav", parameters=["-ac", "1", "-ar", "16000"])
+            wav = preprocess_wav(seg_path)
+            if len(wav) == 0:
+                t += HOP
+                continue
+            emb = encoder.embed_utterance(wav)
+            embeds.append(emb)
+            embed_times.append((t, t + WIN))
+            t += HOP
+
+    if len(embeds) < 3:
+        print(f"[fast-diar] too few windows: {len(embeds)} -> empty")
+        return []
+
+    X = np.stack(embeds)
+    n = target_speakers or 2  # for interviews, default to 2
+    clusterer = SpectralClusterer(
+        min_clusters=n,
+        max_clusters=target_speakers or 6,
+        p_percentile=0.90,
+        gaussian_blur_sigma=1,
+    )
+    labels = clusterer.predict(X)
+
+    # Merge consecutive window labels → turns
+    turns = []
+    cur_lab = labels[0]
+    cur_start = embed_times[0][0]
+    for (ts, te), lab in zip(embed_times, labels):
+        if lab != cur_lab:
+            turns.append((cur_start, ts, f"S{int(cur_lab) + 1}"))
+            cur_lab = lab
+            cur_start = ts
+    turns.append((cur_start, embed_times[-1][1], f"S{int(cur_lab) + 1}"))
+
+    # Merge tiny gaps with same label
+    final = []
+    for s, e, lab in turns:
+        if final and lab == final[-1][2] and (s - final[-1][1]) < 0.2:
+            final[-1] = (final[-1][0], e, lab)
+        else:
+            final.append((s, e, lab))
+
+    uniq = sorted({lab for _, _, lab in final})
+    print(f"[fast-diar] windows={len(embed_times)} speakers={uniq} count={len(uniq)}")
+    return final
+
+# -------- Map turns to Whisper segments --------------------------
+def _assign_speakers_from_turns(segments: List[Dict], turns: List[tuple]) -> List[Dict]:
+    """Assign best-overlap speaker to each Whisper segment, merge consecutive same-speaker segments."""
+    if not turns:
         for s in segments:
             s["speaker"] = "S1"
+        print("[mapping] no turns -> all S1")
         return segments
-
-    turns = []
-    for turn, _, lab in diarization.itertracks(yield_label=True):
-        turns.append((float(turn.start), float(turn.end), lab))
 
     def overlap(a0, a1, b0, b1):
         inter = max(0.0, min(a1, b1) - max(a0, b0))
@@ -153,37 +273,74 @@ def _assign_speakers(segments: List[Dict], diarization, pretty_map: Dict[str, st
             if r > score:
                 score = r
                 best = lab
-        s["speaker"] = pretty_map.get(best, None) if best else None
+        s["speaker"] = best or "S1"
 
     merged: List[Dict] = []
     for s in segments:
-        if merged and merged[-1].get("speaker") == s.get("speaker"):
+        if merged and merged[-1]["speaker"] == s["speaker"]:
             merged[-1]["end"] = s["end"]
             merged[-1]["text"] = (merged[-1]["text"] + " " + s["text"]).strip()
         else:
             merged.append(dict(s))
+    final_speakers = sorted({seg.get("speaker") for seg in merged})
+    print(f"[mapping] final speakers={final_speakers} count={len(final_speakers)}")
     return merged
 
-# ---------------- Public API used by app.py ----------------
+# =================================================================
+#                    PUBLIC API USED BY app.py
+# =================================================================
+
 def transcribe_video_simple(path: str):
     return _run_whisper(path)
 
 def transcribe_audio_simple(path: str):
     return _run_whisper(path)
 
+def _diarize_auto(path: str):
+    """Choose fast/accurate/off based on env. Fallbacks applied."""
+    mode = (os.getenv("DIARIZATION_MODE") or "fast").lower()  # default fast on Railway
+    num = int(os.getenv("NUM_SPK")) if os.getenv("NUM_SPK") else None
+
+    if mode == "off":
+        return "off", []
+
+    if mode == "accurate":
+        diar, pretty = _diarize_pyannote(path)
+        if diar is not None:
+            # convert to turns [(start,end,'Sx')]
+            turns = []
+            for turn, _, lab in diar.itertracks(yield_label=True):
+                turns.append((float(turn.start), float(turn.end), pretty.get(lab, "S1")))
+            return "accurate", turns
+        # fallback to fast
+        wav = _to_wav_mono_16k(path)
+        return "fast", _fast_diarize_wav(wav, num)
+
+    if mode == "fast":
+        wav = _to_wav_mono_16k(path)
+        return "fast", _fast_diarize_wav(wav, num)
+
+    # auto (try accurate, else fast)
+    diar, pretty = _diarize_pyannote(path)
+    if diar is not None:
+        turns = []
+        for turn, _, lab in diar.itertracks(yield_label=True):
+            turns.append((float(turn.start), float(turn.end), pretty.get(lab, "S1")))
+        return "accurate", turns
+    wav = _to_wav_mono_16k(path)
+    return "fast", _fast_diarize_wav(wav, num)
+
 def transcribe_video_diarized(path: str):
     segs, transcript = _run_whisper(path)
-    diar, pretty = _diarize_pyannote(path)
-    segs = _assign_speakers(segs, diar, pretty)
-    mode_used = "accurate" if diar is not None else "off"
-    return segs, transcript, mode_used
+    mode, turns = _diarize_auto(path)
+    segs = _assign_speakers_from_turns(segs, turns)
+    return segs, transcript, mode
 
 def transcribe_audio_diarized(path: str):
     segs, transcript = _run_whisper(path)
-    diar, pretty = _diarize_pyannote(path)
-    segs = _assign_speakers(segs, diar, pretty)
-    mode_used = "accurate" if diar is not None else "off"
-    return segs, transcript, mode_used
+    mode, turns = _diarize_auto(path)
+    segs = _assign_speakers_from_turns(segs, turns)
+    return segs, transcript, mode
 
 # ---------------- Helpers for rendering & exports ----------------
 def transcript_with_speakers(segments: List[Dict]) -> str:
