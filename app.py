@@ -5,7 +5,7 @@ from io import BytesIO
 from uuid import uuid4
 
 from dotenv import load_dotenv
-load_dotenv()  # load env BEFORE importing process_video (it reads env at import)
+load_dotenv()  # must run before importing process_video
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file
 
@@ -38,7 +38,6 @@ def register_download(data: bytes, mimetype: str, filename: str) -> str:
 
 @app.get("/")
 def index():
-    # Expect templates/index.html and templates/result_media.html / result_text.html in your project
     return render_template("index.html")
 
 # ---------- TEXT ----------
@@ -80,7 +79,7 @@ def upload_video_simple():
     summary = summarize_text(transcript)
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
-        media_info={"type": "video", "name": f.filename, "diarization_mode": "none"},
+        media_info={"type": "video", "name": f.filename, "diarization_mode": "off"},
         transcript_text=transcript,
         segments=segments,
     )
@@ -158,7 +157,7 @@ def upload_audio_simple():
     summary = summarize_text(transcript)
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
-        media_info={"type": "audio", "name": f.filename, "diarization_mode": "none"},
+        media_info={"type": "audio", "name": f.filename, "diarization_mode": "off"},
         transcript_text=transcript,
         segments=segments,
     )
