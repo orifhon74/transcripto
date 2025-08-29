@@ -20,4 +20,4 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY . .
 
 # Railway provides $PORT; gunicorn binds to it
-CMD ["gunicorn", "-w", "2", "-k", "gthread", "-b", "0.0.0.0:${PORT}", "app:app", "--timeout", "600"]
+CMD ["python", "app.py"]600"]
