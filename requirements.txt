@@ -11,6 +11,7 @@ webrtcvad==2.0.10
 resemblyzer==0.1.4
 spectralcluster==0.2.4
 pydub==0.25.1
+httpx==0.27.2
 
 # If you *might* use accurate diarization later (pyannote):
 # torch CPU build (needed by resemblyzer anyway)
