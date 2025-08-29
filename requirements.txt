@@ -1,25 +1,22 @@
-# Core
-Flask==3.0.3
+flask==3.0.3
+gunicorn==22.0.0
 python-dotenv==1.0.1
 
-# Torch (CPU build)
+openai==1.40.0
+
+# transcription
+faster-whisper==1.0.3
+# Fast diarization stack (CPU-friendly)
+webrtcvad==2.0.10
+resemblyzer==0.1.4
+spectralcluster==0.2.4
+pydub==0.25.1
+
+# If you *might* use accurate diarization later (pyannote):
+# torch CPU build (needed by resemblyzer anyway)
 torch==2.2.2
-
-# Whisper (OpenAI)
-openai-whisper==20231117
-
-# HF pipelines (optional, for local summarization)
-transformers==4.41.2
-sentencepiece==0.2.0
-accelerate==0.30.1
-protobuf==5.27.0
-
-# Diarization (optional; keep but make feature-toggle since it’s heavy and needs auth for pre-trained models)
-pyannote.audio==3.1.1
-
-# Media utilities
-moviepy==1.0.3
-
-# Pin NumPy to avoid Numba issues (whisper may pull numba transitively)
-numpy==1.26.4
-numba<0.59
+# pyannote is optional; comment these out if you won't use it on Railway CPU
+# pyannote.audio==3.1.1
+# torchaudio==2.2.2
+# soundfile==0.12.1
+# huggingface_hub==0.24.6
