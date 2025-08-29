@@ -6,7 +6,7 @@ from typing import List, Dict, Tuple
 
 # ---------------- OpenAI summarizer ----------------
 from openai import OpenAI
-_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_client = OpenAI()
 
 def summarize_text(text: str, model: str = "gpt-4o-mini") -> str:
     text = (text or "").strip()
