@@ -19,12 +19,27 @@
     .card:hover { transform: translateY(-4px); }
     h1 { font-weight: 700; margin-bottom: 1rem; }
     .btn-custom { border-radius: 2rem; font-weight: 500; }
+    .notice {
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(255,255,255,.2);
+      padding: 1rem;
+      border-radius: .75rem;
+      margin: 1.5rem auto 2rem;
+      max-width: 800px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
   <div class="container py-5">
     <h1 class="text-center">AI Transcription & Summarization</h1>
     <p class="lead text-center">Upload <strong>video</strong>, <strong>audio</strong>, or <strong>text</strong> to get transcripts, summaries, and a verification report.</p>
+
+    <!-- Notice about diarization -->
+    <div class="notice">
+      <strong>⚠️ Note:</strong> The <em>Differentiated (Speaker Diarization)</em> feature is experimental.
+      On this server it often detects only one speaker. Use the <strong>Simple</strong> option if you only need a transcript and summary.
+    </div>
 
     <div class="row g-4 mt-4">
       <!-- Video -->
