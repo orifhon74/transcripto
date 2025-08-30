@@ -4,7 +4,9 @@ import subprocess
 import tempfile
 from typing import List, Dict, Tuple, Optional
 
-# ===================== OpenAI summarizer =====================
+# =========================
+# OpenAI summarizer
+# =========================
 from openai import OpenAI
 _client = OpenAI()  # reads OPENAI_API_KEY
 
@@ -32,20 +34,20 @@ def summarize_text(text: str, model: str = "gpt-4o-mini") -> str:
     except Exception as e:
         return f"(Summary unavailable: {e})"
 
-# ===================== Device/compute for faster-whisper =====================
-def _pick_device():
-    forced = os.getenv("DEVICE")
-    if forced:
-        return forced
-    return "cpu"  # Railway default
 
-def _pick_compute_type(device: str):
-    forced = os.getenv("COMPUTE_TYPE")
-    if forced:
-        return forced
-    return "int8" if device == "cpu" else "float16"
+# =========================
+# Device & compute (Railway = CPU)
+# =========================
+def _pick_device() -> str:
+    return os.getenv("DEVICE", "cpu")
 
-# ===================== Transcription (faster-whisper) =====================
+def _pick_compute_type(device: str) -> str:
+    return os.getenv("COMPUTE_TYPE", "int8" if device == "cpu" else "float16")
+
+
+# =========================
+# Transcription (faster-whisper)
+# =========================
 from faster_whisper import WhisperModel
 
 _WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
@@ -56,8 +58,8 @@ print(f"[whisper] model={_WHISPER_MODEL_NAME} device={_DEVICE} compute_type={_CO
 _fw = WhisperModel(_WHISPER_MODEL_NAME, device=_DEVICE, compute_type=_COMPUTE)
 
 def _run_whisper(path: str) -> Tuple[List[Dict], str]:
-    """Return (segments, transcript) from faster-whisper."""
-    segs_out: List[Dict] = []
+    """Return (segments, transcript)."""
+    results: List[Dict] = []
     segments, _info = _fw.transcribe(
         path,
         vad_filter=True,
@@ -66,15 +68,18 @@ def _run_whisper(path: str) -> Tuple[List[Dict], str]:
         best_of=1,
     )
     for s in segments:
-        segs_out.append({
-            "start": float(getattr(s, "start", 0.0) or 0.0),
-            "end":   float(getattr(s, "end", 0.0) or 0.0),
-            "text":  (getattr(s, "text", "") or "").strip(),
+        results.append({
+            "start": float(s.start or 0.0),
+            "end": float(s.end or 0.0),
+            "text": (s.text or "").strip(),
         })
-    transcript = " ".join(s["text"] for s in segs_out).strip()
-    return segs_out, transcript
+    transcript = " ".join(seg["text"] for seg in results).strip()
+    return results, transcript
 
-# ===================== Utilities: ffmpeg CLI =====================
+
+# =========================
+# FFmpeg helper (CLI, no python wrapper)
+# =========================
 def _to_wav_mono_16k(src_path: str) -> str:
     """Extract mono 16 kHz WAV using ffmpeg CLI."""
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -84,215 +89,149 @@ def _to_wav_mono_16k(src_path: str) -> str:
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return tmp.name
 
-# ===================== Diarization strategies =====================
-_DIA_STRATEGY = (os.getenv("DIA_STRATEGY") or "minimal").lower()   # minimal | fast | accurate
-_NUM_SPK      = int(os.getenv("NUM_SPK", "0")) or None             # e.g., 2
 
-# ----- (Optional) Accurate: pyannote (heavy; not used on hobby tiers) -----
+# =========================
+# Accurate diarization (optional, uses HF token)
+# =========================
+_HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
+_DIARIZATION_MODE = (os.getenv("DIARIZATION_MODE") or "fast").lower()  # fast | accurate | off
+
 def _diarize_pyannote(path: str):
-    token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
-    if not token:
-        print("[diar] pyannote disabled: no HF token")
-        return None
+    """
+    Try pyannote/speaker-diarization-3.1 with auto speaker count (min/max).
+    Returns (diarization_obj, pretty_map) or (None, {}).
+    """
+    if _DIARIZATION_MODE == "off":
+        print("[diar] mode=off")
+        return None, {}
+    if not _HF_TOKEN:
+        print("[diar] no HUGGINGFACE_TOKEN -> skipping pyannote")
+        return None, {}
     try:
         from pyannote.audio import Pipeline
         wav = _to_wav_mono_16k(path)
-        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1",
-                                            use_auth_token=token)
 
-        kwargs = {}
-        if _NUM_SPK:
-            kwargs["num_speakers"] = _NUM_SPK
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=_HF_TOKEN,
+        )
 
-        diar = pipeline({"audio": wav}, **kwargs)
-        print("[diar] pyannote ran OK")
-        return diar
+        # auto-k bounds (can tweak via env; defaults are sensible)
+        min_spk = int(os.getenv("MIN_SPK", "2"))
+        max_spk = int(os.getenv("MAX_SPK", "6"))
+
+        diar = pipeline({"audio": wav}, min_speakers=min_spk, max_speakers=max_spk)
+
+        raw_labels = []
+        for _, _, lab in diar.itertracks(yield_label=True):
+            if lab not in raw_labels:
+                raw_labels.append(lab)
+        pretty = {lab: f"S{idx+1}" for idx, lab in enumerate(sorted(raw_labels))}
+        print(f"[diar][accurate] speakers={list(pretty.values())} (auto {min_spk}-{max_spk})")
+        return diar, pretty
     except Exception as e:
-        print("[diar] pyannote error:", e)
-        return None
+        print("[diar][accurate] disabled:", e)
+        return None, {}
 
-def _pyannote_to_turns(diarization) -> List[tuple]:
-    if diarization is None:
-        return []
-    raw = []
-    for turn, _, lab in diarization.itertracks(yield_label=True):
-        raw.append((float(turn.start), float(turn.end), lab))
-    # map to S1,S2,...
-    uniq = {}
-    out = []
-    for s, e, lab in raw:
-        if lab not in uniq:
-            uniq[lab] = f"S{len(uniq)+1}"
-        out.append((s, e, uniq[lab]))
-    return out
 
-# ----- (Optional) Fast: embeddings + clustering (still heavy) -----
-def _fast_diarize_wav(wav_path: str, target_speakers: Optional[int]) -> Optional[List[tuple]]:
-    try:
-        import webrtcvad
-        from pydub import AudioSegment
-        from resemblyzer import VoiceEncoder, preprocess_wav
-        from spectralcluster import SpectralClusterer
-    except Exception as e:
-        print("[fast-diar] deps missing -> None:", e)
-        return None
+# =========================
+# Fast diarization (CPU): VAD + embeddings + spectral clustering (auto-k)
+# =========================
+import webrtcvad
+from pydub import AudioSegment
+from resemblyzer import VoiceEncoder, preprocess_wav
+from spectralcluster import SpectralClusterer
 
-    # simple VAD to prune non-speech
-    vad = webrtcvad.Vad(3)
-    from pydub import AudioSegment
-    audio = AudioSegment.from_wav(wav_path).set_channels(1).set_frame_rate(16000)
-    raw = audio.raw_data
-    frame_ms = 30
-    frame_bytes = int(16000 * (frame_ms/1000.0) * 2)
-    frames = [raw[i:i+frame_bytes] for i in range(0, len(raw), frame_bytes)]
-    speech = [len(fr)==frame_bytes and vad.is_speech(fr, 16000) for fr in frames]
-
-    # regions
-    regions = []
-    i = 0
-    while i < len(speech):
-        if speech[i]:
-            j = i
-            while j < len(speech) and speech[j]:
-                j += 1
-            s = i*frame_ms/1000.0; e = j*frame_ms/1000.0
-            if e - s >= 0.6:
-                if regions and s - regions[-1][1] < 0.3:
-                    regions[-1] = (regions[-1][0], e)
-                else:
-                    regions.append((s, e))
-            i = j
-        else:
-            i += 1
-    if not regions:
-        return []
-
-    # embeddings
-    encoder = VoiceEncoder()
-    segs = []
-    for s, e in regions:
-        seg = audio[int(s*1000):int(e*1000)]
-        seg_path = wav_path + f".seg_{int(s*1000)}_{int(e*1000)}.wav"
-        seg.export(seg_path, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-        from resemblyzer import preprocess_wav
-        segs.append(preprocess_wav(seg_path))
-    embeds = encoder.embed_speaker_segments(segs)
-
-    # clustering
-    n = target_speakers
-    from spectralcluster import SpectralClusterer
-    clusterer = SpectralClusterer(
-        min_clusters=n if n else 2,
-        max_clusters=n if n else 8,
-        p_percentile=0.90,
-        gaussian_blur_sigma=1,
-    )
-    labels = clusterer.predict(embeds)
-    return [(float(s), float(e), f"S{int(l)+1}") for (s, e), l in zip(regions, labels)]
-
-# ----- Minimal: zero-ML heuristic (works on tiny servers) -----
-def _minimal_diarize_wav(wav_path: str, target_speakers: Optional[int]) -> List[tuple]:
+def _fast_diarize_wav(wav_path: str,
+                      min_clusters: int = 2,
+                      max_clusters: int = 6) -> List[tuple]:
     """
-    Try VAD-only turns. If two speakers requested and VAD fails to split,
-    we'll fall back to a Whisper-gap heuristic later.
+    Returns list of (start_sec, end_sec, 'S#') with auto number of speakers.
     """
     try:
-        import webrtcvad
-        from pydub import AudioSegment
-    except Exception as e:
-        print("[minimal-diar] deps missing:", e)
-        return []
+        vad = webrtcvad.Vad(3)  # most aggressive
+        audio = AudioSegment.from_wav(wav_path).set_channels(1).set_frame_rate(16000)
+        raw = audio.raw_data
 
-    vad = webrtcvad.Vad(2)
-    audio = AudioSegment.from_wav(wav_path).set_channels(1).set_frame_rate(16000)
-    raw = audio.raw_data
-    frame_ms = 30
-    frame_bytes = int(16000 * (frame_ms/1000.0) * 2)
-    frames = [raw[i:i+frame_bytes] for i in range(0, len(raw), frame_bytes)]
-    speech = [len(fr)==frame_bytes and vad.is_speech(fr, 16000) for fr in frames]
+        # frame & VAD
+        frame_ms = 30
+        frame_bytes = int(16000 * (frame_ms / 1000.0) * 2)
+        frames = [raw[i:i + frame_bytes] for i in range(0, len(raw), frame_bytes)]
+        speech_flags = [len(fr) == frame_bytes and vad.is_speech(fr, 16000) for fr in frames]
 
-    regions = []
-    i = 0
-    while i < len(speech):
-        if speech[i]:
-            j = i
-            while j < len(speech) and speech[j]:
-                j += 1
-            s = i*frame_ms/1000.0; e = j*frame_ms/1000.0
-            if e - s >= 0.5:
-                if regions and s - regions[-1][1] < 0.25:
-                    regions[-1] = (regions[-1][0], e)
-                else:
-                    regions.append((s, e))
-            i = j
-        else:
-            i += 1
+        # merge frames -> regions
+        regions = []
+        i = 0
+        while i < len(speech_flags):
+            if speech_flags[i]:
+                start = i
+                while i < len(speech_flags) and speech_flags[i]:
+                    i += 1
+                end = i
+                regions.append((start * frame_ms / 1000.0, end * frame_ms / 1000.0))
+            else:
+                i += 1
 
-    if not regions:
-        return []
-    if target_speakers == 2:
-        # alternate labels across turns
-        lab = "S1"
-        out = []
+        # prune tiny regions & merge small gaps
+        MIN_REGION = 0.6
+        regions = [(s, e) for (s, e) in regions if (e - s) >= MIN_REGION]
+        merged = []
         for s, e in regions:
-            out.append((float(s), float(e), lab))
-            lab = "S2" if lab == "S1" else "S1"
+            if merged and (s - merged[-1][1]) < 0.3:
+                merged[-1] = (merged[-1][0], e)
+            else:
+                merged.append((s, e))
+        regions = merged
+        if not regions:
+            print("[diar][fast] no speech regions")
+            return []
+
+        # embeddings
+        enc = VoiceEncoder()
+        seg_wavs = []
+        for s, e in regions:
+            seg = audio[int(s * 1000):int(e * 1000)]
+            seg_path = wav_path + f".seg_{int(s * 1000)}_{int(e * 1000)}.wav"
+            seg.export(seg_path, format="wav", parameters=["-ac", "1", "-ar", "16000"])
+            seg_wavs.append(preprocess_wav(seg_path))
+        # One embedding per segment
+        import numpy as np
+        embeds = np.vstack([enc.embed_utterance(w) for w in seg_wavs])
+
+        # spectral clustering with auto cluster count in [min,max]
+        clusterer = SpectralClusterer(
+            min_clusters=min_clusters,
+            max_clusters=max_clusters,
+            p_percentile=0.90,
+            gaussian_blur_sigma=1,
+        )
+        labels = clusterer.predict(embeds)  # ints 0..K-1
+
+        # map to S1..SK
+        out = []
+        for (s, e), lab in zip(regions, labels):
+            out.append((float(s), float(e), f"S{int(lab) + 1}"))
+
+        uniq = sorted({lab for _, _, lab in out})
+        print(f"[diar][fast] speakers={uniq} count={len(uniq)} (auto {min_clusters}-{max_clusters})")
         return out
-    return [(float(s), float(e), "S1") for s, e in regions]
-
-# Heuristic: split by Whisper gaps when VAD/ML produced no usable turns
-def _label_two_speakers_from_whisper(segments: List[Dict]) -> List[tuple]:
-    """
-    Build pseudo-turns from Whisper segments by toggling speakers when:
-      - gap between consecutive segments > 0.7s, OR
-      - we've had 3 or more consecutive lines by the same speaker, OR
-      - the segment looks like a short interjection/question.
-    """
-    if not segments:
+    except Exception as e:
+        print("[diar][fast] error:", e)
         return []
-    TURN_GAP = 0.7
-    MAX_RUN  = 3
 
-    def short_interjection(txt: str) -> bool:
-        t = txt.strip().lower()
-        if not t:
-            return False
-        return len(t.split()) <= 4 or t.endswith("?")
 
-    turns: List[tuple] = []
-    cur_label = "S1"
-    run_len = 0
-    cur_start = segments[0]["start"]
-    prev_end = segments[0]["end"]
-
-    for i, s in enumerate(segments):
-        gap = s["start"] - prev_end if i else 0.0
-        toggle = (gap > TURN_GAP) or (run_len >= MAX_RUN) or short_interjection(s["text"])
-
-        if toggle and i != 0:
-            # close current turn at previous end
-            turns.append((float(cur_start), float(prev_end), cur_label))
-            # toggle
-            cur_label = "S2" if cur_label == "S1" else "S1"
-            cur_start = s["start"]
-            run_len = 0
-
-        run_len += 1
-        prev_end = s["end"]
-
-    # close last
-    turns.append((float(cur_start), float(prev_end), cur_label))
-    return turns
-
-# ===================== Assign speakers to Whisper segments =====================
-def _assign_speakers_from_turns(segments: List[Dict], turns: List[tuple], want_two: bool) -> List[Dict]:
+# =========================
+# Assign speaker labels to Whisper segments
+# =========================
+def _assign_speakers_from_turns(segments: List[Dict], turns: List[tuple]) -> List[Dict]:
+    """
+    Map (start,end,label) turns to Whisper segments; merge consecutive same-speaker lines.
+    """
     if not turns:
-        if want_two:
-            # fallback: build turns from Whisper gaps
-            turns = _label_two_speakers_from_whisper(segments)
-        else:
-            for s in segments: s["speaker"] = "S1"
-            return segments
+        for s in segments:
+            s["speaker"] = "S1"
+        print("[map] no turns -> all S1")
+        return segments
 
     def overlap_ratio(a0, a1, b0, b1):
         inter = max(0.0, min(a1, b1) - max(a0, b0))
@@ -307,7 +246,7 @@ def _assign_speakers_from_turns(segments: List[Dict], turns: List[tuple], want_t
                 score, best = r, lab
         s["speaker"] = best or "S1"
 
-    # merge consecutive identical speakers
+    # merge consecutive lines by same speaker
     merged: List[Dict] = []
     for s in segments:
         if merged and merged[-1]["speaker"] == s["speaker"]:
@@ -315,56 +254,60 @@ def _assign_speakers_from_turns(segments: List[Dict], turns: List[tuple], want_t
             merged[-1]["text"] = (merged[-1]["text"] + " " + s["text"]).strip()
         else:
             merged.append(dict(s))
+    final = sorted({seg.get("speaker") for seg in merged})
+    print(f"[map] final speakers={final} count={len(final)}")
     return merged
 
-# ===================== Public API =====================
+
+# =========================
+# Public API used by app.py
+# =========================
 def transcribe_video_simple(path: str):
     return _run_whisper(path)
 
 def transcribe_audio_simple(path: str):
     return _run_whisper(path)
 
-def _diarize_auto(path: str) -> Tuple[str, List[tuple]]:
-    """Return (mode_used, turns). Strategy: accurate -> fast -> minimal."""
-    wav = None
-    strategy = _DIA_STRATEGY if _DIA_STRATEGY in {"accurate", "fast", "minimal"} else "minimal"
-
-    def ensure_wav():
-        nonlocal wav
-        if wav is None:
-            wav = _to_wav_mono_16k(path)
-
-    if strategy == "accurate":
-        diar = _diarize_pyannote(path)
+def _diarize_auto(path: str):
+    """
+    Auto mode:
+      - If DIARIZATION_MODE=accurate and HF token present -> pyannote (auto K with min/max)
+      - Else -> fast CPU pipeline (auto K in [MIN_SPK, MAX_SPK], defaults 2..6)
+    """
+    if _DIARIZATION_MODE == "accurate" and _HF_TOKEN:
+        diar, pretty = _diarize_pyannote(path)
         if diar is not None:
-            return "accurate", _pyannote_to_turns(diar)
-        strategy = "fast"
+            # convert pyannote to (start,end,'S#')
+            turns = []
+            for turn, _, lab in diar.itertracks(yield_label=True):
+                ts, te = float(turn.start), float(turn.end)
+                turns.append((ts, te, pretty.get(lab, "S1")))
+            return "accurate", turns
 
-    if strategy == "fast":
-        ensure_wav()
-        turns = _fast_diarize_wav(wav, _NUM_SPK)
-        if turns:
-            return "fast", turns
-        # fall through
-
-    ensure_wav()
-    return "minimal", _minimal_diarize_wav(wav, _NUM_SPK)
+    # fast fallback (or explicit fast)
+    wav = _to_wav_mono_16k(path)
+    min_spk = int(os.getenv("MIN_SPK", "2"))
+    max_spk = int(os.getenv("MAX_SPK", "6"))
+    turns = _fast_diarize_wav(wav, min_clusters=min_spk, max_clusters=max_spk)
+    mode = "fast" if turns else "off"
+    return mode, turns
 
 def transcribe_video_diarized(path: str):
     segs, transcript = _run_whisper(path)
     mode, turns = _diarize_auto(path)
-    want_two = (_NUM_SPK == 2)
-    segs = _assign_speakers_from_turns(segs, turns, want_two)
-    return segs, transcript, mode
+    segs = _assign_speakers_from_turns(segs, turns)
+    return segs, transcript, ("minimal" if mode == "off" else mode)
 
 def transcribe_audio_diarized(path: str):
     segs, transcript = _run_whisper(path)
     mode, turns = _diarize_auto(path)
-    want_two = (_NUM_SPK == 2)
-    segs = _assign_speakers_from_turns(segs, turns, want_two)
-    return segs, transcript, mode
+    segs = _assign_speakers_from_turns(segs, turns)
+    return segs, transcript, ("minimal" if mode == "off" else mode)
 
-# ===================== Helpers for rendering & exports =====================
+
+# =========================
+# Helpers for rendering & exports
+# =========================
 def transcript_with_speakers(segments: List[Dict]) -> str:
     lines = []
     for s in segments:
