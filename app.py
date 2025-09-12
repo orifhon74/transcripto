@@ -87,8 +87,11 @@ def upload_video_simple():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
+    token_json = register_download(
+        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+        "application/json",
+        f"{base}_verification.json"
+    )
 
     return render_template(
         "result_media.html",
@@ -127,8 +130,11 @@ def upload_video_diarized():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
+    token_json = register_download(
+        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+        "application/json",
+        f"{base}_verification.json"
+    )
 
     return render_template(
         "result_media.html",
@@ -165,8 +171,11 @@ def upload_audio_simple():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
+    token_json = register_download(
+        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+        "application/json",
+        f"{base}_verification.json"
+    )
 
     return render_template(
         "result_media.html",
@@ -205,8 +214,11 @@ def upload_audio_diarized():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
+    token_json = register_download(
+        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+        "application/json",
+        f"{base}_verification.json"
+    )
 
     return render_template(
         "result_media.html",
@@ -226,11 +238,13 @@ def download(token: str):
     item = DOWNLOADS.get(token)
     if not item:
         return "Not found", 404
+    # Optional: one-shot download (frees memory)
+    payload = DOWNLOADS.pop(token)
     return send_file(
-        BytesIO(item["data"]),
-        mimetype=item["mimetype"],
+        BytesIO(payload["data"]),
+        mimetype=payload["mimetype"],
         as_attachment=True,
-        download_name=item["filename"],
+        download_name=payload["filename"],
     )
 
 @app.get("/healthz")
