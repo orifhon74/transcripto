@@ -23,7 +23,7 @@ torch==2.2.2
 # Optional accurate diarization (pyannote)
 # Uncomment if you want to use pyannote on Railway
 # (⚠ big and slow on CPU, but works if you set HUGGINGFACE_TOKEN)
-# pyannote.audio==3.1.1
-# torchaudio==2.2.2
-# soundfile==0.12.1
-# huggingface_hub==0.24.6
+pyannote.audio==3.1.1
+torchaudio==2.2.2
+soundfile==0.12.1
+huggingface_hub==0.24.6
