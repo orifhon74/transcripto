@@ -267,6 +267,26 @@ def diag():
         info["pyannote_error"] = str(e)[:200]
     return info, 200
 
+@app.post("/diag_diarize")
+def diag_diarize():
+    # Upload a tiny 20–30s clip with 2 speakers
+    f = request.files.get("audio")
+    if not f:
+        return {"error": "upload field 'audio' missing"}, 400
+    import tempfile, os, json
+    from process_video import _diarize_auto
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+        f.save(tmp.name)
+        mode, turns = _diarize_auto(tmp.name)
+    # Summarize labels
+    labels = sorted({lab for _, _, lab in turns}) if turns else []
+    return {
+        "mode_used": mode,
+        "num_turns": len(turns),
+        "labels": labels,
+        "sample": turns[:10],
+    }, 200
+
 @app.get("/healthz")
 def healthz():
     return "ok", 200
