@@ -247,6 +247,26 @@ def download(token: str):
         download_name=payload["filename"],
     )
 
+@app.get("/diag")
+def diag():
+    import os
+    from process_video import _DIARIZATION_MODE, _HF_TOKEN
+    info = {
+        "env.DIARIZATION_MODE": os.getenv("DIARIZATION_MODE"),
+        "env.MIN_SPK": os.getenv("MIN_SPK"),
+        "env.MAX_SPK": os.getenv("MAX_SPK"),
+        "env.NUM_SPK": os.getenv("NUM_SPK"),
+        "resolved_mode": _DIARIZATION_MODE,     # after 'auto' mapping in code
+        "has_hf_token": bool(_HF_TOKEN),
+    }
+    try:
+        import pyannote.audio  # type: ignore
+        info["pyannote_import"] = True
+    except Exception as e:
+        info["pyannote_import"] = False
+        info["pyannote_error"] = str(e)[:200]
+    return info, 200
+
 @app.get("/healthz")
 def healthz():
     return "ok", 200
