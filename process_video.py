@@ -433,5 +433,5 @@ def verification_report_from(media_info: Dict, transcript_text: str, segments: L
         "avg_chars_per_sec": avg_cps,
         "suspicious_speed_flag": avg_cps > 25,
         "silence_segments_over_3s": silences,
-        "notes": ["Lightweight QA only (not deepfake detection)."],
+        "notes": ["Lightweight QA only."],
     }
