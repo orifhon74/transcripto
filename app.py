@@ -3,11 +3,13 @@ import json
 import tempfile
 from io import BytesIO
 from uuid import uuid4
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 load_dotenv()  # must run before importing process_video
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 
 from process_video import (
     # media
@@ -34,7 +36,192 @@ def register_download(data: bytes, mimetype: str, filename: str) -> str:
     DOWNLOADS[token] = {"data": data, "mimetype": mimetype, "filename": filename}
     return token
 
-# ---------------- routes ----------------
+# ---------------- JOBS API (Phase 0.5) ----------------
+# In-memory job store. For multi-instance, swap to Redis later.
+JOBS = {}  # job_id -> dict(status, kind, filename, created_at, logs[], artifacts{}, meta{}, error?)
+EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("JOB_WORKERS", "2")))
+
+def _job_log(job_id: str, msg: str):
+    job = JOBS.get(job_id)
+    if job is not None:
+        job["logs"].append(f"[{datetime.utcnow().isoformat(timespec='seconds')}Z] {msg}")
+
+def _finish_job(job_id: str, *, status: str, artifacts=None, meta=None, error=None):
+    job = JOBS.get(job_id)
+    if job is None:
+        return
+    job["status"] = status
+    if artifacts is not None:
+        job["artifacts"] = artifacts
+    if meta is not None:
+        job["meta"] = meta
+    if error is not None:
+        job["error"] = str(error)
+
+def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
+    """
+    Runs in a worker thread. Produces artifacts:
+    - transcript_txt (token)
+    - subtitles_srt (token) when media
+    - verification_json (token)
+    Also returns meta: {version, diarization_mode, speakers?}
+    """
+    try:
+        JOBS[job_id]["status"] = "running"
+        _job_log(job_id, f"Started {kind} for {orig_name}")
+
+        # Save to a temp file with appropriate suffix
+        suffix = ".txt" if kind == "text" else (".wav" if kind.startswith("audio_") else ".mp4")
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+            tmp.write(file_bytes)
+            tmp.flush()
+
+            base = os.path.splitext(orig_name)[0]
+
+            if kind == "text":
+                text = file_bytes.decode("utf-8", errors="ignore")
+                _job_log(job_id, "Summarizing text…")
+                summary = summarize_text(text)
+                token_text_original = register_download(
+                    text.encode("utf-8"), "text/plain", f"{base}_original.txt"
+                )
+                artifacts = {
+                    "summary": summary,
+                    "text_original": {"token": token_text_original, "filename": f"{base}_original.txt"},
+                }
+                meta = {"version": "Text", "diarization_mode": "off", "speakers": [], "count": 0}
+                _finish_job(job_id, status="done", artifacts=artifacts, meta=meta)
+                _job_log(job_id, "Completed.")
+                return
+
+            # MEDIA (audio/video)
+            if kind == "video_simple":
+                _job_log(job_id, "Transcribing (simple)…")
+                segments, transcript = transcribe_video_simple(tmp.name)
+                mode_used = "off"
+            elif kind == "video_diarized":
+                _job_log(job_id, "Transcribing + diarizing (video)…")
+                segments, transcript, mode_used = transcribe_video_diarized(tmp.name)
+            elif kind == "audio_simple":
+                _job_log(job_id, "Transcribing (simple)…")
+                segments, transcript = transcribe_audio_simple(tmp.name)
+                mode_used = "off"
+            elif kind == "audio_diarized":
+                _job_log(job_id, "Transcribing + diarizing (audio)…")
+                segments, transcript, mode_used = transcribe_audio_diarized(tmp.name)
+            else:
+                raise ValueError(f"Unknown job kind: {kind}")
+
+            # Build artifacts
+            _job_log(job_id, "Building summary/SRT/report…")
+            display_transcript = (
+                transcript_with_speakers(segments) if "diarized" in kind else transcript
+            )
+            summary = summarize_text(transcript)
+            srt = build_srt_from_segments(segments)
+            verification = verification_report_from(
+                media_info={
+                    "type": "video" if kind.startswith("video") else "audio",
+                    "name": orig_name,
+                    "diarization_mode": mode_used,
+                },
+                transcript_text=transcript,
+                segments=segments,
+            )
+            meta = diarization_summary(segments) if "diarized" in kind else None
+
+            # Register downloads
+            token_txt = register_download(
+                transcript.encode("utf-8"), "text/plain", f"{base}.txt"
+            )
+            token_srt = register_download(
+                srt.encode("utf-8"), "application/x-subrip", f"{base}.srt"
+            )
+            token_json = register_download(
+                json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                "application/json",
+                f"{base}_verification.json",
+            )
+
+            artifacts = {
+                "transcript_display": display_transcript,
+                "summary": summary,
+                "verification": verification,
+                "downloads": {
+                    "txt": {"token": token_txt, "filename": f"{base}.txt"},
+                    "srt": {"token": token_srt, "filename": f"{base}.srt"},
+                    "verification_json": {"token": token_json, "filename": f"{base}_verification.json"},
+                },
+            }
+            header_version = (
+                f"{'Video' if kind.startswith('video') else 'Audio'} — "
+                f"{'Differentiated' if 'diarized' in kind else 'Simple'}"
+                + (f" ({mode_used})" if 'diarized' in kind else "")
+            )
+            meta_block = {
+                "version": header_version,
+                "diarization_mode": mode_used,
+                "speakers": (meta or {}).get("speakers", []),
+                "count": (meta or {}).get("count", 0),
+            }
+            _finish_job(job_id, status="done", artifacts=artifacts, meta=meta_block)
+            _job_log(job_id, "Completed.")
+
+    except Exception as e:
+        _finish_job(job_id, status="error", error=e)
+        _job_log(job_id, f"Error: {e}")
+
+@app.post("/jobs")
+def create_job():
+    """
+    Enqueue a job.
+    Accepts multipart/form-data:
+      - kind: audio_simple | audio_diarized | video_simple | video_diarized | text
+      - file: the uploaded file (for text/media)
+    Returns: { job_id }
+    """
+    kind = request.form.get("kind", "").strip()
+    f = request.files.get("file")
+    if kind not in {"audio_simple", "audio_diarized", "video_simple", "video_diarized", "text"}:
+        return jsonify({"error": "Invalid 'kind'."}), 400
+    if not f:
+        return jsonify({"error": "Missing 'file'."}), 400
+
+    job_id = uuid4().hex
+    JOBS[job_id] = {
+        "id": job_id,
+        "status": "queued",
+        "kind": kind,
+        "filename": f.filename,
+        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "logs": [],
+        "artifacts": {},
+        "meta": {},
+    }
+
+    file_bytes = f.read()
+    EXECUTOR.submit(_run_media_job, job_id, kind, file_bytes, f.filename)
+
+    return jsonify({"job_id": job_id}), 202
+
+@app.get("/jobs/<job_id>")
+def get_job(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({
+        "id": job["id"],
+        "status": job["status"],
+        "kind": job["kind"],
+        "filename": job["filename"],
+        "created_at": job["created_at"],
+        "logs": job["logs"][-50:],  # last 50 lines
+        "meta": job.get("meta", {}),
+        "artifacts": job.get("artifacts", {}),
+    }), 200
+# ---------------- /JOBS API ----------------
+
+# ---------------- routes (existing, unchanged) ----------------
 
 @app.get("/")
 def index():
@@ -72,8 +259,12 @@ def upload_video_simple():
         flash("No file selected.")
         return redirect(url_for("index"))
 
+    # Read bytes once (so we can both save & stream in the result page)
+    file_bytes = f.read()
+
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-        f.save(tmp.name)
+        tmp.write(file_bytes)
+        tmp.flush()
         segments, transcript = transcribe_video_simple(tmp.name)
 
     summary = summarize_text(transcript)
@@ -87,11 +278,11 @@ def upload_video_simple():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(
-        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-        "application/json",
-        f"{base}_verification.json"
-    )
+    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                                   "application/json", f"{base}_verification.json")
+
+    # NEW: streamable media token (so the player can play what the user uploaded)
+    token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
 
     return render_template(
         "result_media.html",
@@ -103,6 +294,10 @@ def upload_video_simple():
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
+        # NEW ↓
+        media_url=url_for("download", token=token_media),
+        media_type="video",
+        segments_json=json.dumps(segments, ensure_ascii=False),
     )
 
 # ---------- VIDEO (differentiated / diarized) ----------
@@ -113,8 +308,11 @@ def upload_video_diarized():
         flash("No file selected.")
         return redirect(url_for("index"))
 
+    file_bytes = f.read()
+
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-        f.save(tmp.name)
+        tmp.write(file_bytes)
+        tmp.flush()
         segments, transcript, mode_used = transcribe_video_diarized(tmp.name)
 
     display_transcript = transcript_with_speakers(segments)
@@ -130,11 +328,10 @@ def upload_video_diarized():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(
-        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-        "application/json",
-        f"{base}_verification.json"
-    )
+    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                                   "application/json", f"{base}_verification.json")
+
+    token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
 
     return render_template(
         "result_media.html",
@@ -146,6 +343,10 @@ def upload_video_diarized():
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
+        # NEW ↓
+        media_url=url_for("download", token=token_media),
+        media_type="video",
+        segments_json=json.dumps(segments, ensure_ascii=False),
     )
 
 # ---------- AUDIO (simple) ----------
@@ -156,8 +357,11 @@ def upload_audio_simple():
         flash("No file selected.")
         return redirect(url_for("index"))
 
+    file_bytes = f.read()
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        f.save(tmp.name)
+        tmp.write(file_bytes)
+        tmp.flush()
         segments, transcript = transcribe_audio_simple(tmp.name)
 
     summary = summarize_text(transcript)
@@ -171,11 +375,10 @@ def upload_audio_simple():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(
-        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-        "application/json",
-        f"{base}_verification.json"
-    )
+    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                                   "application/json", f"{base}_verification.json")
+
+    token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
 
     return render_template(
         "result_media.html",
@@ -187,6 +390,10 @@ def upload_audio_simple():
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
+        # NEW ↓
+        media_url=url_for("download", token=token_media),
+        media_type="audio",
+        segments_json=json.dumps(segments, ensure_ascii=False),
     )
 
 # ---------- AUDIO (differentiated / diarized) ----------
@@ -197,8 +404,11 @@ def upload_audio_diarized():
         flash("No file selected.")
         return redirect(url_for("index"))
 
+    file_bytes = f.read()
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        f.save(tmp.name)
+        tmp.write(file_bytes)
+        tmp.flush()
         segments, transcript, mode_used = transcribe_audio_diarized(tmp.name)
 
     display_transcript = transcript_with_speakers(segments)
@@ -214,11 +424,10 @@ def upload_audio_diarized():
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(
-        json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-        "application/json",
-        f"{base}_verification.json"
-    )
+    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                                   "application/json", f"{base}_verification.json")
+
+    token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
 
     return render_template(
         "result_media.html",
@@ -230,6 +439,10 @@ def upload_audio_diarized():
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
+        # NEW ↓
+        media_url=url_for("download", token=token_media),
+        media_type="audio",
+        segments_json=json.dumps(segments, ensure_ascii=False),
     )
 
 # ---------- downloads ----------
@@ -238,7 +451,7 @@ def download(token: str):
     item = DOWNLOADS.get(token)
     if not item:
         return "Not found", 404
-    # Optional: one-shot download (frees memory)
+    # One-shot download to free memory
     payload = DOWNLOADS.pop(token)
     return send_file(
         BytesIO(payload["data"]),
@@ -246,46 +459,6 @@ def download(token: str):
         as_attachment=True,
         download_name=payload["filename"],
     )
-
-@app.get("/diag")
-def diag():
-    import os
-    from process_video import _DIARIZATION_MODE, _HF_TOKEN
-    info = {
-        "env.DIARIZATION_MODE": os.getenv("DIARIZATION_MODE"),
-        "env.MIN_SPK": os.getenv("MIN_SPK"),
-        "env.MAX_SPK": os.getenv("MAX_SPK"),
-        "env.NUM_SPK": os.getenv("NUM_SPK"),
-        "resolved_mode": _DIARIZATION_MODE,     # after 'auto' mapping in code
-        "has_hf_token": bool(_HF_TOKEN),
-    }
-    try:
-        import pyannote.audio  # type: ignore
-        info["pyannote_import"] = True
-    except Exception as e:
-        info["pyannote_import"] = False
-        info["pyannote_error"] = str(e)[:200]
-    return info, 200
-
-@app.post("/diag_diarize")
-def diag_diarize():
-    # Upload a tiny 20–30s clip with 2 speakers
-    f = request.files.get("audio")
-    if not f:
-        return {"error": "upload field 'audio' missing"}, 400
-    import tempfile, os, json
-    from process_video import _diarize_auto
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        f.save(tmp.name)
-        mode, turns = _diarize_auto(tmp.name)
-    # Summarize labels
-    labels = sorted({lab for _, _, lab in turns}) if turns else []
-    return {
-        "mode_used": mode,
-        "num_turns": len(turns),
-        "labels": labels,
-        "sample": turns[:10],
-    }, 200
 
 @app.get("/healthz")
 def healthz():

@@ -69,11 +69,11 @@
             <h4 class="card-title">🎧 Audio Transcription</h4>
             <form action="{{ url_for('upload_audio_simple') }}" method="post" enctype="multipart/form-data" class="mt-3">
               <input type="file" name="audio_file" class="form-control mb-2" accept=".wav,.mp3,.flac" required>
-              <button type="submit" class="btn btn-custom btn-primary w-100 mb-2">Simple</button>
+              <button type="submit" class="btn btn-custom btn-primary w-100 mb-2">Simple (faster)</button>
             </form>
             <form action="{{ url_for('upload_audio_diarized') }}" method="post" enctype="multipart/form-data">
               <input type="file" name="audio_file_d" class="form-control mb-2" accept=".wav,.mp3,.flac" required>
-              <button type="submit" class="btn btn-custom btn-outline-light w-100">Differentiated</button>
+              <button type="submit" class="btn btn-custom btn-outline-light w-100">Differentiated (slower)</button>
             </form>
           </div>
         </div>
