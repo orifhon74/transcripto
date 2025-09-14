@@ -13,6 +13,7 @@
       --border: #334155;     /* panel border */
       --accent: #3b82f6;     /* highlight */
       --accent-soft: #1e40af;/* highlight bg */
+      --uz: #e5ffcc;         /* uzbek line color */
     }
     body { background: var(--bg); color: var(--text); min-height: 100vh; }
     a { text-decoration: none; }
@@ -23,8 +24,7 @@
       border-radius: 0.9rem;
       box-shadow: 0 6px 18px rgba(0,0,0,.25);
     }
-    .btn-row a { margin-right:.5rem; margin-bottom:.5rem; }
-
+    .btn-row a, .btn-row button { margin-right:.5rem; margin-bottom:.5rem; }
     .badge-row { gap:.5rem; }
 
     /* Player */
@@ -49,30 +49,19 @@
       .sticky-col { position: sticky; top: 1.25rem; }
     }
 
-    /* --- Brighten headings & section titles --- */
-    h1, h2, h3, h4, h5, h6,
-    .card-title {
-      color: var(--text) !important;
-    }
+    /* Bright headings */
+    h1, h2, h3, h4, h5, h6, .card-title { color: var(--text) !important; }
 
-    /* --- List items inside cards --- */
-    .card ul li,
-    .card ul li strong {
-      color: var(--text) !important;
-    }
+    /* List items inside cards */
+    .card ul li, .card ul li strong { color: var(--text) !important; }
 
-    /* --- Details/summary --- */
-    details > summary {
-      color: var(--text) !important;
-    }
-    details > summary::marker {
-      color: var(--muted);
-    }
+    /* Details/summary */
+    details > summary { color: var(--text) !important; }
+    details > summary::marker { color: var(--muted); }
 
-    /* --- Small helper text --- */
-    .card .text-secondary {
-      color: var(--muted) !important;
-    }
+    /* Uzbek lines toggle */
+    .seg .uz { display: none; color: var(--uz); font-style: italic; margin-top: .25rem; }
+    .uz-on .seg .uz { display: block; }
   </style>
 </head>
 <body>
@@ -87,6 +76,11 @@
         <a href="{{ url_for('download', token=token_srt) }}" class="btn btn-primary btn-lg">⬇ Subtitles (.srt)</a>
         <a href="{{ url_for('download', token=token_json) }}" class="btn btn-outline-light btn-lg">⬇ Verification (.json)</a>
         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg">← Back</a>
+
+        <!-- Uzbek toggle -->
+        <button id="toggle-uz" type="button" class="btn btn-outline-warning btn-lg">
+          🇺🇿 Uzbek
+        </button>
       </div>
     </div>
 
@@ -128,7 +122,16 @@
           {% if summary %}
           <div class="card p-3">
             <h4 class="mb-2">✨ Summary</h4>
-            <div style="white-space: pre-wrap; color: var(--text);">{{ summary }}</div>
+            <div style="white-space: pre-wrap; color: var(--text)">{{ summary }}</div>
+
+            {% if summary_uz %}
+              <hr class="my-2" />
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge text-bg-warning text-dark">UZ</span>
+                <strong style="color: var(--uz);">Uzbek Summary</strong>
+              </div>
+              <div style="white-space: pre-wrap; color: var(--uz);">{{ summary_uz }}</div>
+            {% endif %}
           </div>
           {% endif %}
         </div>
@@ -159,6 +162,9 @@
     // Segments injected from Flask
     window.SEGMENTS = {{ segments_json | safe }};
 
+    // Uzbek default state (server can pre-enable)
+    let uzOn = {{ 'true' if show_uz else 'false' }};
+
     // HH:MM:SS formatter
     function fmt(t) {
       t = Math.max(0, t || 0);
@@ -185,13 +191,20 @@
         ts.className = 'ts';
         ts.textContent = fmt(s.start);
 
-        const content = document.createElement('div');
+        const wrap = document.createElement('div');
         const spk = s.speaker ? `<span class="spk">${s.speaker}:</span> ` : '';
-        content.innerHTML = spk + (s.text || '').replace(/</g, "&lt;");
+        const safe = (s.text || '').replace(/</g, "&lt;");
+        wrap.innerHTML = spk + safe;
+
+        // Uzbek line, if attached by server
+        if (s.uz) {
+          const uz = document.createElement('div');
+          uz.className = 'uz';
+          uz.textContent = s.uz;
+          wrap.appendChild(uz);
+        }
 
         row.appendChild(ts);
-        const wrap = document.createElement('div');
-        wrap.innerHTML = content.innerHTML;
         row.appendChild(wrap);
 
         row.addEventListener('click', () => {
@@ -245,8 +258,25 @@
       });
     }
 
+    // Uzbek toggle button
+    const uzBtn = document.getElementById('toggle-uz');
+    function applyUzToggle() {
+      if (uzOn) {
+        document.body.classList.add('uz-on');
+        uzBtn.classList.remove('btn-outline-warning');
+        uzBtn.classList.add('btn-warning');
+      } else {
+        document.body.classList.remove('uz-on');
+        uzBtn.classList.add('btn-outline-warning');
+        uzBtn.classList.remove('btn-warning');
+      }
+    }
+    uzBtn.addEventListener('click', () => { uzOn = !uzOn; applyUzToggle(); });
+
+    // Init
     renderTranscript(window.SEGMENTS || []);
     setupHighlight();
+    applyUzToggle();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>

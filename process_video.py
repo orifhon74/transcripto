@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import shutil
 import uuid
+import json
 from typing import List, Dict, Tuple, Optional
 
 # =========================
@@ -36,6 +37,50 @@ def summarize_text(text: str, model: str = "gpt-4o-mini") -> str:
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         return f"(Summary unavailable: {e})"
+
+def translate_texts_to_uz(texts: list[str], model: str = "gpt-4o-mini") -> list[str]:
+    """
+    Translate a list of short strings to Uzbek (uz). Returns a list of same length.
+    Keeps punctuation; avoids adding extra notes. Empty inputs -> empty outputs.
+    Batches to stay under token limits.
+    """
+    cleaned = [(t or "").strip() for t in texts]
+    if not any(cleaned):
+        return [""] * len(texts)
+
+    out = [""] * len(cleaned)
+
+    # small batching to keep latency/cost reasonable
+    BATCH = 60
+    for i in range(0, len(cleaned), BATCH):
+        chunk = cleaned[i:i+BATCH]
+        prompt = (
+            "Translate the following lines to Uzbek (uz). "
+            "Return ONLY a JSON array of strings, same order and length, no extra text.\n\n"
+            + json.dumps(chunk, ensure_ascii=False)
+        )
+        try:
+            resp = _client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a precise translator."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=1600,
+            )
+            content = (resp.choices[0].message.content or "").strip()
+            # try to parse JSON array
+            import json as _json
+            arr = _json.loads(content)
+            if isinstance(arr, list):
+                for j, v in enumerate(arr):
+                    out[i + j] = (v or "").strip()
+        except Exception as e:
+            # graceful fallback: keep English if translation fails
+            for j, v in enumerate(chunk):
+                out[i + j] = v
+    return out
 
 
 # =========================

@@ -23,10 +23,14 @@ from process_video import (
     verification_report_from,
     transcript_with_speakers,
     diarization_summary,
+    translate_texts_to_uz,   # <-- NEW: Uzbek translator helper
 )
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev")
+
+# Optional memory guardrail (reject huge uploads)
+# app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
 
 # ---------------- in-memory downloads registry ----------------
 DOWNLOADS = {}  # token -> {"data": bytes, "mimetype": str, "filename": str}
@@ -221,7 +225,7 @@ def get_job(job_id: str):
     }), 200
 # ---------------- /JOBS API ----------------
 
-# ---------------- routes (existing, unchanged) ----------------
+# ---------------- routes (with Uzbek translation support) ----------------
 
 @app.get("/")
 def index():
@@ -259,15 +263,27 @@ def upload_video_simple():
         flash("No file selected.")
         return redirect(url_for("index"))
 
-    # Read bytes once (so we can both save & stream in the result page)
-    file_bytes = f.read()
+    translate_flag = bool(request.form.get("translate_uz"))
 
+    file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
         tmp.write(file_bytes)
         tmp.flush()
         segments, transcript = transcribe_video_simple(tmp.name)
 
+    # Build summaries
     summary = summarize_text(transcript)
+    summary_uz = ""
+    if translate_flag and summary:
+        summary_uz = "\n".join(translate_texts_to_uz([summary]))
+
+    # Per-segment Uzbek (attach as s["uz"])
+    if translate_flag and segments:
+        seg_texts = [s.get("text", "") for s in segments]
+        uz_lines = translate_texts_to_uz(seg_texts)
+        for s, uz in zip(segments, uz_lines):
+            s["uz"] = uz
+
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
         media_info={"type": "video", "name": f.filename, "diarization_mode": "off"},
@@ -281,7 +297,6 @@ def upload_video_simple():
     token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
                                    "application/json", f"{base}_verification.json")
 
-    # NEW: streamable media token (so the player can play what the user uploaded)
     token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
 
     return render_template(
@@ -289,15 +304,16 @@ def upload_video_simple():
         version="Video — Simple",
         transcript=transcript,
         summary=summary,
+        summary_uz=summary_uz,
         verification=verification,
         meta=None,
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
-        # NEW ↓
         media_url=url_for("download", token=token_media),
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
+        show_uz=translate_flag,
     )
 
 # ---------- VIDEO (differentiated / diarized) ----------
@@ -308,15 +324,27 @@ def upload_video_diarized():
         flash("No file selected.")
         return redirect(url_for("index"))
 
-    file_bytes = f.read()
+    translate_flag = bool(request.form.get("translate_uz"))
 
+    file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
         tmp.write(file_bytes)
         tmp.flush()
         segments, transcript, mode_used = transcribe_video_diarized(tmp.name)
 
-    display_transcript = transcript_with_speakers(segments)
+    # Build summaries
     summary = summarize_text(transcript)
+    summary_uz = ""
+    if translate_flag and summary:
+        summary_uz = "\n".join(translate_texts_to_uz([summary]))
+
+    # Per-segment Uzbek
+    if translate_flag and segments:
+        seg_texts = [s.get("text", "") for s in segments]
+        uz_lines = translate_texts_to_uz(seg_texts)
+        for s, uz in zip(segments, uz_lines):
+            s["uz"] = uz
+
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
         media_info={"type": "video", "name": f.filename, "diarization_mode": mode_used},
@@ -336,17 +364,18 @@ def upload_video_diarized():
     return render_template(
         "result_media.html",
         version=f"Video — Differentiated ({mode_used})",
-        transcript=display_transcript,
+        transcript=transcript_with_speakers(segments),
         summary=summary,
+        summary_uz=summary_uz,
         verification=verification,
         meta=meta,
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
-        # NEW ↓
         media_url=url_for("download", token=token_media),
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
+        show_uz=translate_flag,
     )
 
 # ---------- AUDIO (simple) ----------
@@ -357,14 +386,25 @@ def upload_audio_simple():
         flash("No file selected.")
         return redirect(url_for("index"))
 
-    file_bytes = f.read()
+    translate_flag = bool(request.form.get("translate_uz"))
 
+    file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
         tmp.write(file_bytes)
         tmp.flush()
         segments, transcript = transcribe_audio_simple(tmp.name)
 
     summary = summarize_text(transcript)
+    summary_uz = ""
+    if translate_flag and summary:
+        summary_uz = "\n".join(translate_texts_to_uz([summary]))
+
+    if translate_flag and segments:
+        seg_texts = [s.get("text", "") for s in segments]
+        uz_lines = translate_texts_to_uz(seg_texts)
+        for s, uz in zip(segments, uz_lines):
+            s["uz"] = uz
+
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
         media_info={"type": "audio", "name": f.filename, "diarization_mode": "off"},
@@ -385,15 +425,16 @@ def upload_audio_simple():
         version="Audio — Simple",
         transcript=transcript,
         summary=summary,
+        summary_uz=summary_uz,
         verification=verification,
         meta=None,
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
-        # NEW ↓
         media_url=url_for("download", token=token_media),
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
+        show_uz=translate_flag,
     )
 
 # ---------- AUDIO (differentiated / diarized) ----------
@@ -404,15 +445,25 @@ def upload_audio_diarized():
         flash("No file selected.")
         return redirect(url_for("index"))
 
-    file_bytes = f.read()
+    translate_flag = bool(request.form.get("translate_uz"))
 
+    file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
         tmp.write(file_bytes)
         tmp.flush()
         segments, transcript, mode_used = transcribe_audio_diarized(tmp.name)
 
-    display_transcript = transcript_with_speakers(segments)
     summary = summarize_text(transcript)
+    summary_uz = ""
+    if translate_flag and summary:
+        summary_uz = "\n".join(translate_texts_to_uz([summary]))
+
+    if translate_flag and segments:
+        seg_texts = [s.get("text", "") for s in segments]
+        uz_lines = translate_texts_to_uz(seg_texts)
+        for s, uz in zip(segments, uz_lines):
+            s["uz"] = uz
+
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
         media_info={"type": "audio", "name": f.filename, "diarization_mode": mode_used},
@@ -432,17 +483,18 @@ def upload_audio_diarized():
     return render_template(
         "result_media.html",
         version=f"Audio — Differentiated ({mode_used})",
-        transcript=display_transcript,
+        transcript=transcript_with_speakers(segments),
         summary=summary,
+        summary_uz=summary_uz,
         verification=verification,
         meta=meta,
         token_txt=token_txt,
         token_srt=token_srt,
         token_json=token_json,
-        # NEW ↓
         media_url=url_for("download", token=token_media),
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
+        show_uz=translate_flag,
     )
 
 # ---------- downloads ----------
