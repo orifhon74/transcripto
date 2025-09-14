@@ -3,8 +3,9 @@ import json
 import tempfile
 from io import BytesIO
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 from dotenv import load_dotenv
 load_dotenv()  # must run before importing process_video
@@ -23,32 +24,66 @@ from process_video import (
     verification_report_from,
     transcript_with_speakers,
     diarization_summary,
-    translate_texts_to_uz,   # <-- NEW: Uzbek translator helper
+    translate_texts_to_uz,   # Uzbek translator helper
 )
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev")
 
+# ------------------------------------------------------------
 # Optional memory guardrail (reject huge uploads)
-# app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
+# Uncomment to enforce a hard limit (bytes). Example: 200 MB.
+# app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
+# ------------------------------------------------------------
 
-# ---------------- in-memory downloads registry ----------------
-DOWNLOADS = {}  # token -> {"data": bytes, "mimetype": str, "filename": str}
+# =========================
+# In-memory downloads registry WITH TTL
+# =========================
+DOWNLOADS = {}  # token -> {"data": bytes, "mimetype": str, "filename": str, "created_at": datetime}
+DL_LOCK = Lock()
+DOWNLOAD_TTL_MIN = int(os.getenv("DOWNLOAD_TTL_MIN", "30"))  # minutes
 
 def register_download(data: bytes, mimetype: str, filename: str) -> str:
     token = uuid4().hex
-    DOWNLOADS[token] = {"data": data, "mimetype": mimetype, "filename": filename}
+    with DL_LOCK:
+        DOWNLOADS[token] = {
+            "data": data,
+            "mimetype": mimetype,
+            "filename": filename,
+            "created_at": datetime.utcnow(),
+        }
     return token
 
-# ---------------- JOBS API (Phase 0.5) ----------------
-# In-memory job store. For multi-instance, swap to Redis later.
+def cleanup_downloads(now: datetime | None = None):
+    """Remove expired downloads from memory."""
+    now = now or datetime.utcnow()
+    cutoff = now - timedelta(minutes=DOWNLOAD_TTL_MIN)
+    to_delete = []
+    with DL_LOCK:
+        for t, item in list(DOWNLOADS.items()):
+            if item["created_at"] < cutoff:
+                to_delete.append(t)
+        for t in to_delete:
+            DOWNLOADS.pop(t, None)
+
+# =========================
+# JOBS store WITH TTL & bounded logs
+# =========================
 JOBS = {}  # job_id -> dict(status, kind, filename, created_at, logs[], artifacts{}, meta{}, error?)
 EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("JOB_WORKERS", "2")))
+
+JOB_TTL_MIN = int(os.getenv("JOB_TTL_MIN", "60"))  # minutes after completion
+MAX_JOB_LOG_LINES = int(os.getenv("MAX_JOB_LOG_LINES", "200"))
 
 def _job_log(job_id: str, msg: str):
     job = JOBS.get(job_id)
     if job is not None:
         job["logs"].append(f"[{datetime.utcnow().isoformat(timespec='seconds')}Z] {msg}")
+        # Bound log growth
+        if len(job["logs"]) > MAX_JOB_LOG_LINES:
+            # drop oldest ~10% to avoid constant popping
+            drop = max(1, MAX_JOB_LOG_LINES // 10)
+            del job["logs"][:drop]
 
 def _finish_job(job_id: str, *, status: str, artifacts=None, meta=None, error=None):
     job = JOBS.get(job_id)
@@ -62,6 +97,39 @@ def _finish_job(job_id: str, *, status: str, artifacts=None, meta=None, error=No
     if error is not None:
         job["error"] = str(error)
 
+def cleanup_jobs(now: datetime | None = None):
+    """Remove completed/errored jobs older than JOB_TTL_MIN (and free their artifacts)."""
+    now = now or datetime.utcnow()
+    cutoff = now - timedelta(minutes=JOB_TTL_MIN)
+    to_delete = []
+    for jid, job in list(JOBS.items()):
+        if job["status"] in {"done", "error"}:
+            # created_at saved as ISO; normalize
+            try:
+                created = datetime.fromisoformat(job["created_at"].replace("Z", ""))
+            except Exception:
+                created = now
+            if created < cutoff:
+                to_delete.append(jid)
+    for jid in to_delete:
+        JOBS.pop(jid, None)
+
+# Run light cleanup every N seconds (cheap & safe)
+CLEANUP_INTERVAL_SEC = int(os.getenv("CLEANUP_INTERVAL_SEC", "120"))
+_LAST_CLEAN = datetime.utcnow()
+
+@app.before_request
+def periodic_cleanup():
+    global _LAST_CLEAN
+    now = datetime.utcnow()
+    if (now - _LAST_CLEAN).total_seconds() >= CLEANUP_INTERVAL_SEC:
+        cleanup_downloads(now)
+        cleanup_jobs(now)
+        _LAST_CLEAN = now
+
+# =========================
+# Worker that does the heavy lifting
+# =========================
 def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
     """
     Runs in a worker thread. Produces artifacts:
@@ -134,7 +202,7 @@ def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
             )
             meta = diarization_summary(segments) if "diarized" in kind else None
 
-            # Register downloads
+            # Register downloads (small text artifacts: OK in memory; they expire via TTL)
             token_txt = register_download(
                 transcript.encode("utf-8"), "text/plain", f"{base}.txt"
             )
@@ -175,6 +243,9 @@ def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
         _finish_job(job_id, status="error", error=e)
         _job_log(job_id, f"Error: {e}")
 
+# =========================
+# JOB endpoints
+# =========================
 @app.post("/jobs")
 def create_job():
     """
@@ -219,14 +290,14 @@ def get_job(job_id: str):
         "kind": job["kind"],
         "filename": job["filename"],
         "created_at": job["created_at"],
-        "logs": job["logs"][-50:],  # last 50 lines
+        "logs": job["logs"][-50:],  # last 50 lines (response is bounded; we also bound growth on write)
         "meta": job.get("meta", {}),
         "artifacts": job.get("artifacts", {}),
     }), 200
-# ---------------- /JOBS API ----------------
 
-# ---------------- routes (with Uzbek translation support) ----------------
-
+# =========================
+# Existing page routes (with Uzbek translation support)
+# =========================
 @app.get("/")
 def index():
     return render_template("index.html")
@@ -271,13 +342,11 @@ def upload_video_simple():
         tmp.flush()
         segments, transcript = transcribe_video_simple(tmp.name)
 
-    # Build summaries
     summary = summarize_text(transcript)
     summary_uz = ""
     if translate_flag and summary:
         summary_uz = "\n".join(translate_texts_to_uz([summary]))
 
-    # Per-segment Uzbek (attach as s["uz"])
     if translate_flag and segments:
         seg_texts = [s.get("text", "") for s in segments]
         uz_lines = translate_texts_to_uz(seg_texts)
@@ -332,13 +401,11 @@ def upload_video_diarized():
         tmp.flush()
         segments, transcript, mode_used = transcribe_video_diarized(tmp.name)
 
-    # Build summaries
     summary = summarize_text(transcript)
     summary_uz = ""
     if translate_flag and summary:
         summary_uz = "\n".join(translate_texts_to_uz([summary]))
 
-    # Per-segment Uzbek
     if translate_flag and segments:
         seg_texts = [s.get("text", "") for s in segments]
         uz_lines = translate_texts_to_uz(seg_texts)
@@ -347,9 +414,9 @@ def upload_video_diarized():
 
     srt = build_srt_from_segments(segments)
     verification = verification_report_from(
-        media_info={"type": "video", "name": f.filename, "diarization_mode": mode_used},
-        transcript_text=transcript,
-        segments=segments,
+       media_info={"type": "video", "name": f.filename, "diarization_mode": mode_used},
+       transcript_text=transcript,
+       segments=segments,
     )
     meta = diarization_summary(segments)
 
@@ -500,20 +567,23 @@ def upload_audio_diarized():
 # ---------- downloads ----------
 @app.get("/download/<token>")
 def download(token: str):
-    item = DOWNLOADS.get(token)
+    # one-shot + TTL safety (in case user never downloads)
+    item = DOWNLOADS.pop(token, None)
     if not item:
-        return "Not found", 404
-    # One-shot download to free memory
-    payload = DOWNLOADS.pop(token)
+        return "Not found or expired", 404
     return send_file(
-        BytesIO(payload["data"]),
-        mimetype=payload["mimetype"],
+        BytesIO(item["data"]),
+        mimetype=item["mimetype"],
         as_attachment=True,
-        download_name=payload["filename"],
+        download_name=item["filename"],
     )
 
 @app.get("/healthz")
 def healthz():
+    # force cleanup when health is probed
+    now = datetime.utcnow()
+    cleanup_downloads(now)
+    cleanup_jobs(now)
     return "ok", 200
 
 if __name__ == "__main__":
