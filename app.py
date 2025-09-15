@@ -27,6 +27,13 @@ from process_video import (
     translate_texts_to_uz,   # Uzbek translator helper
 )
 
+# ---------- PDF (ReportLab) ----------
+from reportlab.lib.pagesizes import LETTER
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev")
 
@@ -81,7 +88,6 @@ def _job_log(job_id: str, msg: str):
         job["logs"].append(f"[{datetime.utcnow().isoformat(timespec='seconds')}Z] {msg}")
         # Bound log growth
         if len(job["logs"]) > MAX_JOB_LOG_LINES:
-            # drop oldest ~10% to avoid constant popping
             drop = max(1, MAX_JOB_LOG_LINES // 10)
             del job["logs"][:drop]
 
@@ -104,7 +110,6 @@ def cleanup_jobs(now: datetime | None = None):
     to_delete = []
     for jid, job in list(JOBS.items()):
         if job["status"] in {"done", "error"}:
-            # created_at saved as ISO; normalize
             try:
                 created = datetime.fromisoformat(job["created_at"].replace("Z", ""))
             except Exception:
@@ -126,6 +131,110 @@ def periodic_cleanup():
         cleanup_downloads(now)
         cleanup_jobs(now)
         _LAST_CLEAN = now
+
+# =========================
+# PDF builder
+# =========================
+def _build_pdf_bytes(payload: dict) -> bytes:
+    """
+    payload keys we expect:
+      title, version, filename, created_at, media_type,
+      summary, summary_uz (optional),
+      verification: {duration_sec, avg_chars_per_sec, suspicious_speed_flag, silence_segments_over_3s: [...]},
+      meta: {speakers[], count} (optional),
+      segments: list of {start, end, text, speaker?, uz?}
+    """
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=LETTER,
+        leftMargin=0.75 * inch,
+        rightMargin=0.75 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch,
+        title=payload.get("title", "Transcription Report"),
+        author="Summarizer",
+    )
+
+    styles = getSampleStyleSheet()
+    h1 = styles["Heading1"]
+    h2 = styles["Heading2"]
+    h3 = styles["Heading3"]
+    body = styles["BodyText"]
+    small = ParagraphStyle("Small", parent=body, fontSize=9, leading=12)
+    mono = ParagraphStyle("Mono", parent=body, fontName="Courier", fontSize=9, leading=12)
+    uzStyle = ParagraphStyle("Uz", parent=small, textColor=colors.green, italic=True)
+
+    story = []
+
+    # Header
+    title = payload.get("title") or "Transcription Report"
+    story.append(Paragraph(title, h1))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(payload.get("version", ""), small))
+    story.append(Paragraph(f"File: {payload.get('filename','')}", small))
+    story.append(Paragraph(f"Generated: {payload.get('created_at','')}", small))
+    story.append(Spacer(1, 10))
+
+    # Summary
+    if payload.get("summary"):
+        story.append(Paragraph("Summary", h2))
+        for line in (payload["summary"] or "").split("\n"):
+            story.append(Paragraph(line.strip(), body))
+        if payload.get("summary_uz"):
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("Uzbek Summary", h3))
+            for line in (payload["summary_uz"] or "").split("\n"):
+                story.append(Paragraph(line.strip(), uzStyle))
+        story.append(Spacer(1, 10))
+
+    # Verification
+    ver = payload.get("verification") or {}
+    if ver:
+        story.append(Paragraph("Verification", h2))
+        tbl = Table(
+            [
+                ["Duration (sec)", str(ver.get("duration_sec", ""))],
+                ["Avg chars/sec", str(ver.get("avg_chars_per_sec", ""))],
+                ["Suspicious speed", str(ver.get("suspicious_speed_flag", ""))],
+                ["Long silences", str(len(ver.get("silence_segments_over_3s", []) or []))],
+            ],
+            colWidths=[2.3 * inch, 3.9 * inch],
+        )
+        tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+                ]
+            )
+        )
+        story.append(tbl)
+        story.append(Spacer(1, 10))
+
+    # Transcript
+    segs = payload.get("segments") or []
+    if segs:
+        story.append(Paragraph("Transcript", h2))
+        for s in segs:
+            ts = int(s.get("start", 0) or 0)
+            mm = ts // 60
+            ss = ts % 60
+            ts_label = f"{mm:02d}:{ss:02d}"
+            speaker = s.get("speaker")
+            prefix = f"{speaker}: " if speaker else ""
+            text = (s.get("text") or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            story.append(Paragraph(f"<b>[{ts_label}]</b> {prefix}{text}", mono))
+            if s.get("uz"):
+                uz = (s.get("uz") or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                story.append(Paragraph(uz, uzStyle))
+        story.append(Spacer(1, 8))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
 
 # =========================
 # Worker that does the heavy lifting
@@ -302,6 +411,27 @@ def get_job(job_id: str):
 def index():
     return render_template("index.html")
 
+# Helper to prepare a PDF payload and register it
+def _register_pdf_payload(*, version, media_type, filename, summary, summary_uz, verification, meta, segments):
+    payload = {
+        "title": "Transcription Report",
+        "version": version,
+        "media_type": media_type,
+        "filename": filename,
+        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "summary": summary or "",
+        "summary_uz": summary_uz or "",
+        "verification": verification or {},
+        "meta": meta or {},
+        "segments": segments or [],
+    }
+    tok = register_download(
+        json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        "application/json",
+        f"{os.path.splitext(filename)[0]}_pdf_payload.json",
+    )
+    return tok
+
 # ---------- TEXT ----------
 @app.post("/upload_text")
 def upload_text():
@@ -319,11 +449,26 @@ def upload_text():
         f"{os.path.splitext(f.filename)[0]}_original.txt",
     )
 
+    # Minimal PDF for text-only: include just summary and original text as one segment
+    segments = [{"start": 0, "end": 0, "text": text}]
+    token_pdfdata = _register_pdf_payload(
+        version="Text",
+        media_type="text",
+        filename=f.filename,
+        summary=summary,
+        summary_uz="",  # not translating text uploads here
+        verification={},
+        meta={},
+        segments=segments,
+    )
+
     return render_template(
         "result_text.html",
         file_label=f.filename,
         summary=summary,
         token_text=token_text,
+        # not rendered there, but kept similar API
+        token_pdf=token_pdfdata,
     )
 
 # ---------- VIDEO (simple) ----------
@@ -365,8 +510,19 @@ def upload_video_simple():
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
     token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
                                    "application/json", f"{base}_verification.json")
-
     token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
+
+    # PDF payload token
+    token_pdfdata = _register_pdf_payload(
+        version="Video — Simple",
+        media_type="video",
+        filename=f.filename,
+        summary=summary,
+        summary_uz=summary_uz,
+        verification=verification,
+        meta=None,
+        segments=segments,
+    )
 
     return render_template(
         "result_media.html",
@@ -383,6 +539,7 @@ def upload_video_simple():
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
         show_uz=translate_flag,
+        token_pdf=token_pdfdata,
     )
 
 # ---------- VIDEO (differentiated / diarized) ----------
@@ -425,8 +582,18 @@ def upload_video_diarized():
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
     token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
                                    "application/json", f"{base}_verification.json")
-
     token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
+
+    token_pdfdata = _register_pdf_payload(
+        version=f"Video — Differentiated ({mode_used})",
+        media_type="video",
+        filename=f.filename,
+        summary=summary,
+        summary_uz=summary_uz,
+        verification=verification,
+        meta=meta,
+        segments=segments,
+    )
 
     return render_template(
         "result_media.html",
@@ -443,6 +610,7 @@ def upload_video_diarized():
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
         show_uz=translate_flag,
+        token_pdf=token_pdfdata,
     )
 
 # ---------- AUDIO (simple) ----------
@@ -484,8 +652,18 @@ def upload_audio_simple():
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
     token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
                                    "application/json", f"{base}_verification.json")
-
     token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
+
+    token_pdfdata = _register_pdf_payload(
+        version="Audio — Simple",
+        media_type="audio",
+        filename=f.filename,
+        summary=summary,
+        summary_uz=summary_uz,
+        verification=verification,
+        meta=None,
+        segments=segments,
+    )
 
     return render_template(
         "result_media.html",
@@ -502,6 +680,7 @@ def upload_audio_simple():
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
         show_uz=translate_flag,
+        token_pdf=token_pdfdata,
     )
 
 # ---------- AUDIO (differentiated / diarized) ----------
@@ -544,8 +723,18 @@ def upload_audio_diarized():
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
     token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
                                    "application/json", f"{base}_verification.json")
-
     token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
+
+    token_pdfdata = _register_pdf_payload(
+        version=f"Audio — Differentiated ({mode_used})",
+        media_type="audio",
+        filename=f.filename,
+        summary=summary,
+        summary_uz=summary_uz,
+        verification=verification,
+        meta=meta,
+        segments=segments,
+    )
 
     return render_template(
         "result_media.html",
@@ -562,6 +751,7 @@ def upload_audio_diarized():
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
         show_uz=translate_flag,
+        token_pdf=token_pdfdata,
     )
 
 # ---------- downloads ----------
@@ -576,6 +766,36 @@ def download(token: str):
         mimetype=item["mimetype"],
         as_attachment=True,
         download_name=item["filename"],
+    )
+
+# ---------- PDF download ----------
+@app.get("/download_pdf/<token>")
+def download_pdf(token: str):
+    """
+    token points to a JSON payload (stored in DOWNLOADS) with all data needed for PDF.
+    We POP it to keep memory low; PDF can be regenerated by re-running the job page.
+    """
+    # Get and pop JSON payload
+    item = DOWNLOADS.pop(token, None)
+    if not item:
+        return "Not found or expired", 404
+    try:
+        payload = json.loads(item["data"].decode("utf-8"))
+    except Exception:
+        return "Invalid payload", 400
+
+    # Build PDF bytes
+    pdf_bytes = _build_pdf_bytes(payload)
+
+    # Provide a friendly filename
+    base = os.path.splitext(payload.get("filename", "export"))[0]
+    pdf_name = f"{base}.pdf"
+
+    return send_file(
+        BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=pdf_name,
     )
 
 @app.get("/healthz")

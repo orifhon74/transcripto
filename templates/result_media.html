@@ -75,6 +75,11 @@
         <a href="{{ url_for('download', token=token_txt) }}" class="btn btn-success btn-lg">⬇ Transcript (.txt)</a>
         <a href="{{ url_for('download', token=token_srt) }}" class="btn btn-primary btn-lg">⬇ Subtitles (.srt)</a>
         <a href="{{ url_for('download', token=token_json) }}" class="btn btn-outline-light btn-lg">⬇ Verification (.json)</a>
+
+        {% if token_pdf %}
+          <a href="{{ url_for('download_pdf', token=token_pdf) }}" class="btn btn-warning btn-lg">⬇ PDF Report</a>
+        {% endif %}
+
         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg">← Back</a>
 
         <!-- Uzbek toggle -->
@@ -192,7 +197,7 @@
         ts.textContent = fmt(s.start);
 
         const wrap = document.createElement('div');
-        const spk = s.speaker ? `<span class="spk">${s.speaker}:</span> ` : '';
+        const spk = s.speaker ? `<span class="spk">${s.speaker}:</span> </span>` : '';
         const safe = (s.text || '').replace(/</g, "&lt;");
         wrap.innerHTML = spk + safe;
 
