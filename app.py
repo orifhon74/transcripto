@@ -6,6 +6,7 @@ from uuid import uuid4
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
+import shutil
 
 from dotenv import load_dotenv
 load_dotenv()  # must run before importing process_video
@@ -33,6 +34,10 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+
+# ---------- YouTube ----------
+import yt_dlp
+import shutil as _shutil  # for ffmpeg which()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev")
@@ -405,6 +410,169 @@ def get_job(job_id: str):
     }), 200
 
 # =========================
+# YouTube helpers
+# =========================
+def _yt_dl_opts_base(tmpdir: str) -> dict:
+    ua = os.getenv(
+        "YTDLP_UA",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15",
+    )
+    ff = _shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
+    if not os.path.exists(ff):
+        alt = "/opt/homebrew/bin/ffmpeg"   # Apple Silicon default
+        if os.path.exists(alt):
+            ff = alt
+
+    ydl_opts = {
+        "quiet": True,
+        "noprogress": True,
+        "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
+        "geo_bypass": True,
+        "http_headers": {
+            "User-Agent": ua,
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        "ffmpeg_location": ff,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web_safari", "tv_embedded"],
+            }
+        },
+    }
+
+    # Use browser cookies locally (no path needed)
+    cfb = os.getenv("COOKIES_FROM_BROWSER")
+    if cfb:
+        ydl_opts["cookiesfrombrowser"] = (cfb, None, None, None)
+
+    # Or a cookies.txt file (for servers like Railway)
+    cookiefile = os.getenv("YTDLP_COOKIEFILE")
+    if cookiefile and os.path.exists(cookiefile):
+        ydl_opts["cookiefile"] = cookiefile
+
+    return ydl_opts
+
+def _yt_dl_opts_audio(tmpdir: str) -> dict:
+    o = _yt_dl_opts_base(tmpdir)
+    o.update({
+        "format": "bestaudio/best",
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a"}],
+    })
+    return o
+
+def _yt_dl_opts_subs(tmpdir: str) -> dict:
+    o = _yt_dl_opts_base(tmpdir)
+    o.update({
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["en", "en-US", "en-GB"],
+        "subtitlesformat": "vtt",
+    })
+    return o
+
+def _yt_fetch_captions(url: str, tmpdir: str):
+    """Try to fetch English captions (manual or auto). Returns (vtt_path, title) or (None, None)."""
+    opts = _yt_dl_opts_subs(tmpdir)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)  # may raise DownloadError
+        title = info.get("title")
+        vid = info.get("id")
+        vtt_path = None
+        for fname in os.listdir(tmpdir):
+            if fname.startswith(vid) and fname.endswith(".vtt"):
+                vtt_path = os.path.join(tmpdir, fname)
+                break
+        return vtt_path, title
+
+def _yt_download_audio(url: str, tmpdir: str):
+    """Download best audio and convert to m4a. Returns (audio_path, title)."""
+    opts = _yt_dl_opts_audio(tmpdir)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)  # may raise DownloadError
+        title = info.get("title") or info.get("id")
+        vid = info.get("id")
+        out = None
+        for fname in os.listdir(tmpdir):
+            if fname.startswith(vid) and fname.endswith(".m4a"):
+                out = os.path.join(tmpdir, fname)
+                break
+        if not out:
+            out = ydl.prepare_filename(info)  # fallback
+        return out, title
+
+def _yt_download_video(url: str, tmpdir: str):
+    """
+    Download best video+audio as mp4 for local playback.
+    Returns (video_path, title).
+    """
+    opts = _yt_dl_opts_base(tmpdir)
+    opts.update({
+        # bestvideo+audio, prefer mp4 container
+        "format": "bv*+ba/b",
+        "merge_output_format": "mp4",
+    })
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        title = info.get("title") or info.get("id")
+        out = ydl.prepare_filename(info)
+        # yt-dlp might name it .webm etc; prefer .mp4 if merged
+        if not out.endswith(".mp4"):
+            base, _ = os.path.splitext(out)
+            mp4_candidate = base + ".mp4"
+            if os.path.exists(mp4_candidate):
+                out = mp4_candidate
+        return out, title
+
+def _parse_vtt(vtt_text: str):
+    """Minimal WebVTT to segments: returns (segments, full_text)."""
+    def _parse_ts(ts: str) -> float:
+        ts = ts.strip().replace(',', '.')
+        parts = ts.split(':')
+        if len(parts) == 3:
+            h, m, s = parts
+        elif len(parts) == 2:
+            h, m, s = '0', parts[0], parts[1]
+        else:
+            return 0.0
+        return int(h) * 3600 + int(m) * 60 + float(s)
+
+    lines = [ln.rstrip('\n') for ln in vtt_text.splitlines()]
+    segs = []
+    i = 0
+    buff = []
+    start = end = None
+
+    while i < len(lines):
+        ln = lines[i].strip()
+        i += 1
+        if not ln:
+            continue
+        if '-->' in ln:
+            if start is not None and buff:
+                text = ' '.join(buff).strip()
+                if text:
+                    segs.append({"start": start, "end": end, "text": text})
+            buff = []
+            try:
+                a, b = ln.split('-->')
+                start = _parse_ts(a.strip())
+                end = _parse_ts(b.strip().split(' ')[0])
+            except Exception:
+                start = end = None
+        else:
+            if start is not None:
+                buff.append(ln)
+
+    if start is not None and buff:
+        text = ' '.join(buff).strip()
+        if text:
+            segs.append({"start": start, "end": end, "text": text})
+
+    full = " ".join(s["text"] for s in segs).strip()
+    return segs, full
+
+# =========================
 # Existing page routes (with Uzbek translation support)
 # =========================
 @app.get("/")
@@ -753,6 +921,190 @@ def upload_audio_diarized():
         show_uz=translate_flag,
         token_pdf=token_pdfdata,
     )
+
+# ---------- YOUTUBE (simple) ----------
+@app.post("/ingest_youtube_simple")
+def ingest_youtube_simple():
+    url = (request.form.get("youtube_url") or "").strip()
+    if not url:
+        flash("No YouTube URL.")
+        return redirect(url_for("index"))
+
+    translate_flag = bool(request.form.get("translate_uz"))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        title = None
+        segments = []
+        transcript = ""
+
+        # 1) Try captions first (build transcript/segments)
+        try:
+            vtt_path, title = _yt_fetch_captions(url, tmpdir)
+            if vtt_path and os.path.exists(vtt_path):
+                with open(vtt_path, "r", encoding="utf-8", errors="ignore") as fh:
+                    vtt_text = fh.read()
+                segments, transcript = _parse_vtt(vtt_text)
+        except Exception as e:
+            print("[yt] captions fetch error:", e)
+
+        # 2) Always fetch audio for PLAYER (so highlight works), but
+        #    only transcribe it if we didn't get captions.
+        media_bytes = None
+        # media_mime = "audio/m4a"
+        media_mime = "video/mp4"
+        media_filename = None
+
+        # audio_path, title2 = _yt_download_audio(url, tmpdir)
+        video_path, title2 = _yt_download_video(url, tmpdir)
+        title = title or title2 or "youtube_audio"
+
+        if not segments:
+            # no captions -> transcribe audio
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmpa:
+                shutil.copyfile(video_path, tmpa.name)
+                segs, tx = transcribe_audio_simple(tmpa.name)
+                segments, transcript = segs, tx
+
+        # read bytes so player can play it from memory (works in both cases)
+        with open(video_path, "rb") as fh:
+            media_bytes = fh.read()
+        media_filename = os.path.basename(video_path)
+
+        # Build outputs
+        summary = summarize_text(transcript)
+        summary_uz = ""
+        if translate_flag and summary:
+            summary_uz = "\n".join(translate_texts_to_uz([summary]))
+
+        if translate_flag and segments:
+            seg_texts = [s.get("text", "") for s in segments]
+            uz_lines = translate_texts_to_uz(seg_texts)
+            for s, uz in zip(segments, uz_lines):
+                s["uz"] = uz
+
+        srt = build_srt_from_segments(segments)
+        verification = verification_report_from(
+            media_info={"type": "audio", "name": title or "YouTube", "diarization_mode": "off"},
+            transcript_text=transcript,
+            segments=segments,
+        )
+
+        base = (title or "youtube").replace("/", "_").replace("\\", "_").strip()
+        token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
+        token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
+        token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                                       "application/json", f"{base}_verification.json")
+
+        token_media = register_download(media_bytes, media_mime, media_filename or f"{base}.mp4")
+        media_url = url_for("download", token=token_media)
+
+        token_pdfdata = _register_pdf_payload(
+            version="YouTube — Simple",
+            media_type="video",
+            filename=title or "YouTube",
+            summary=summary,
+            summary_uz=summary_uz,
+            verification=verification,
+            meta=None,
+            segments=segments,
+        )
+
+        return render_template(
+            "result_media.html",
+            version=f"YouTube — Simple",
+            transcript=transcript,
+            summary=summary,
+            summary_uz=summary_uz,
+            verification=verification,
+            meta=None,
+            token_txt=token_txt,
+            token_srt=token_srt,
+            token_json=token_json,
+            media_url=media_url,
+            media_type="video",
+            segments_json=json.dumps(segments, ensure_ascii=False),
+            show_uz=translate_flag,
+            token_pdf=token_pdfdata,
+        )
+
+# ---------- YOUTUBE (differentiated/diarized) ----------
+@app.post("/ingest_youtube_diarized")
+def ingest_youtube_diarized():
+    url = (request.form.get("youtube_url_d") or "").strip()
+    if not url:
+        flash("No YouTube URL.")
+        return redirect(url_for("index"))
+
+    translate_flag = bool(request.form.get("translate_uz"))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # download audio (always)
+        # audio_path, title = _yt_download_audio(url, tmpdir)
+        video_path, title = _yt_download_video(url, tmpdir)
+
+        # Run diarized transcription
+        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=True) as tmpa:
+            shutil.copyfile(video_path, tmpa.name)
+            segments, transcript, mode_used = transcribe_audio_diarized(tmpa.name)
+
+        summary = summarize_text(transcript)
+        summary_uz = ""
+        if translate_flag and summary:
+            summary_uz = "\n".join(translate_texts_to_uz([summary]))
+
+        if translate_flag and segments:
+            seg_texts = [s.get("text", "") for s in segments]
+            uz_lines = translate_texts_to_uz(seg_texts)
+            for s, uz in zip(segments, uz_lines):
+                s["uz"] = uz
+
+        srt = build_srt_from_segments(segments)
+        verification = verification_report_from(
+            media_info={"type": "audio", "name": title or "YouTube", "diarization_mode": mode_used},
+            transcript_text=transcript,
+            segments=segments,
+        )
+        meta = diarization_summary(segments)
+
+        base = (title or "youtube").replace("/", "_").replace("\\", "_").strip()
+        token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
+        token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
+        token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
+                                       "application/json", f"{base}_verification.json")
+
+        with open(video_path, "rb") as fh:
+            media_bytes = fh.read()
+        token_media = register_download(media_bytes, "video/mp4", os.path.basename(video_path))
+
+        token_pdfdata = _register_pdf_payload(
+            version=f"YouTube — Differentiated",
+            media_type="video",
+            filename=title or "YouTube",
+            summary=summary,
+            summary_uz=summary_uz,
+            verification=verification,
+            meta=None,
+            segments=segments,
+        )
+
+        return render_template(
+            "result_media.html",
+            version=f"YouTube — Differentiated ({mode_used})",
+            transcript=transcript_with_speakers(segments),
+            summary=summary,
+            summary_uz=summary_uz,
+            verification=verification,
+            meta=meta,
+            token_txt=token_txt,
+            token_srt=token_srt,
+            token_json=token_json,
+            media_url=url_for("download", token=token_media),
+            media_type="audio",
+            segments_json=json.dumps(segments, ensure_ascii=False),
+            show_uz=translate_flag,
+            token_pdf=token_pdfdata,
+        )
+
 
 # ---------- downloads ----------
 @app.get("/download/<token>")

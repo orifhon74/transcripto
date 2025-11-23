@@ -82,6 +82,16 @@
 
         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg">← Back</a>
 
+<!--        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg">← Back</a>-->
+        <!-- Export PDF form -->
+<!--        <form action="{{ url_for('download_pdf', token=token_pdf) }}" method="post" class="d-inline">-->
+<!--          <input type="hidden" name="version" value="{{ version }}">-->
+<!--          <input type="hidden" name="summary" value="{{ summary }}">-->
+<!--          <input type="hidden" name="summary_uz" value="{{ summary_uz or '' }}">-->
+<!--          <input type="hidden" name="segments_json" value='{{ segments_json | tojson | safe }}'>-->
+<!--          <button type="submit" class="btn btn-outline-info btn-lg">⬇ Export PDF</button>-->
+<!--        </form>-->
+
         <!-- Uzbek toggle -->
         <button id="toggle-uz" type="button" class="btn btn-outline-warning btn-lg">
           🇺🇿 Uzbek
