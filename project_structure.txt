@@ -1,0 +1,20 @@
+project_root/
+  app.py                # tiny entrypoint only
+  config.py             # env / constants
+  app_ext/
+    __init__.py
+    routes_media.py     # upload_* routes
+    routes_youtube.py   # ingest_youtube_* routes
+    routes_jobs.py      # /jobs endpoints
+    downloads.py        # DOWNLOADS + register_download + cleanup
+    jobs.py             # JOBS store + _run_media_job + cleanup
+    pdf_export.py       # _register_pdf_payload and PDF utils
+    youtube.py          # _yt_dl_opts_*, _yt_download_audio, _yt_fetch_captions, _parse_vtt
+    transcription.py    # wraps process_video functions
+  media_core/
+    __init__.py
+    whisper_pipeline.py # _run_whisper, model loading, device logic
+    diarization.py      # pyannote + fast diarization + _assign_speakers_from_turns
+    summarization.py    # summarize_text
+    translation.py      # translate_texts_* stuff (see section 2)
+    formatting.py       # build_srt_from_segments, transcript_with_speakers

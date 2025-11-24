@@ -446,37 +446,3 @@ def build_srt_from_segments(segments: List[Dict]) -> str:
         lines.append(prefix + s["text"])
         lines.append("")
     return "\n".join(lines)
-
-
-def verification_report_from(media_info: Dict, transcript_text: str, segments: List[Dict]) -> Dict:
-    if not segments:
-        return {
-            "media": media_info,
-            "duration_sec": 0.0,
-            "avg_chars_per_sec": 0.0,
-            "suspicious_speed_flag": False,
-            "silence_segments_over_3s": [],
-            "notes": ["No segments detected."],
-        }
-    duration = max(0.0, round(segments[-1]["end"] - segments[0]["start"], 2))
-    total_chars = len(transcript_text)
-    avg_cps = round(total_chars / duration, 2) if duration > 0 else 0.0
-
-    silences = []
-    for i in range(1, len(segments)):
-        gap = segments[i]["start"] - segments[i-1]["end"]
-        if gap > 3.0:
-            silences.append({
-                "start": round(segments[i-1]["end"], 2),
-                "end": round(segments[i]["start"], 2),
-                "gap": round(gap, 2),
-            })
-
-    return {
-        "media": media_info,
-        "duration_sec": duration,
-        "avg_chars_per_sec": avg_cps,
-        "suspicious_speed_flag": avg_cps > 25,
-        "silence_segments_over_3s": silences,
-        "notes": ["Lightweight QA only."],
-    }

@@ -22,7 +22,6 @@ from process_video import (
     # helpers
     summarize_text,
     build_srt_from_segments,
-    verification_report_from,
     transcript_with_speakers,
     diarization_summary,
     translate_texts_to_uz,   # Uzbek translator helper
@@ -145,7 +144,6 @@ def _build_pdf_bytes(payload: dict) -> bytes:
     payload keys we expect:
       title, version, filename, created_at, media_type,
       summary, summary_uz (optional),
-      verification: {duration_sec, avg_chars_per_sec, suspicious_speed_flag, silence_segments_over_3s: [...]},
       meta: {speakers[], count} (optional),
       segments: list of {start, end, text, speaker?, uz?}
     """
@@ -193,32 +191,6 @@ def _build_pdf_bytes(payload: dict) -> bytes:
                 story.append(Paragraph(line.strip(), uzStyle))
         story.append(Spacer(1, 10))
 
-    # Verification
-    ver = payload.get("verification") or {}
-    if ver:
-        story.append(Paragraph("Verification", h2))
-        tbl = Table(
-            [
-                ["Duration (sec)", str(ver.get("duration_sec", ""))],
-                ["Avg chars/sec", str(ver.get("avg_chars_per_sec", ""))],
-                ["Suspicious speed", str(ver.get("suspicious_speed_flag", ""))],
-                ["Long silences", str(len(ver.get("silence_segments_over_3s", []) or []))],
-            ],
-            colWidths=[2.3 * inch, 3.9 * inch],
-        )
-        tbl.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                    ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
-                ]
-            )
-        )
-        story.append(tbl)
-        story.append(Spacer(1, 10))
-
     # Transcript
     segs = payload.get("segments") or []
     if segs:
@@ -249,7 +221,6 @@ def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
     Runs in a worker thread. Produces artifacts:
     - transcript_txt (token)
     - subtitles_srt (token) when media
-    - verification_json (token)
     Also returns meta: {version, diarization_mode, speakers?}
     """
     try:
@@ -305,15 +276,6 @@ def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
             )
             summary = summarize_text(transcript)
             srt = build_srt_from_segments(segments)
-            verification = verification_report_from(
-                media_info={
-                    "type": "video" if kind.startswith("video") else "audio",
-                    "name": orig_name,
-                    "diarization_mode": mode_used,
-                },
-                transcript_text=transcript,
-                segments=segments,
-            )
             meta = diarization_summary(segments) if "diarized" in kind else None
 
             # Register downloads (small text artifacts: OK in memory; they expire via TTL)
@@ -323,20 +285,13 @@ def _run_media_job(job_id: str, kind: str, file_bytes: bytes, orig_name: str):
             token_srt = register_download(
                 srt.encode("utf-8"), "application/x-subrip", f"{base}.srt"
             )
-            token_json = register_download(
-                json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                "application/json",
-                f"{base}_verification.json",
-            )
 
             artifacts = {
                 "transcript_display": display_transcript,
                 "summary": summary,
-                "verification": verification,
                 "downloads": {
                     "txt": {"token": token_txt, "filename": f"{base}.txt"},
                     "srt": {"token": token_srt, "filename": f"{base}.srt"},
-                    "verification_json": {"token": token_json, "filename": f"{base}_verification.json"},
                 },
             }
             header_version = (
@@ -580,7 +535,7 @@ def index():
     return render_template("index.html")
 
 # Helper to prepare a PDF payload and register it
-def _register_pdf_payload(*, version, media_type, filename, summary, summary_uz, verification, meta, segments):
+def _register_pdf_payload(*, version, media_type, filename, summary, summary_uz, meta, segments):
     payload = {
         "title": "Transcription Report",
         "version": version,
@@ -589,7 +544,6 @@ def _register_pdf_payload(*, version, media_type, filename, summary, summary_uz,
         "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "summary": summary or "",
         "summary_uz": summary_uz or "",
-        "verification": verification or {},
         "meta": meta or {},
         "segments": segments or [],
     }
@@ -625,7 +579,6 @@ def upload_text():
         filename=f.filename,
         summary=summary,
         summary_uz="",  # not translating text uploads here
-        verification={},
         meta={},
         segments=segments,
     )
@@ -667,17 +620,10 @@ def upload_video_simple():
             s["uz"] = uz
 
     srt = build_srt_from_segments(segments)
-    verification = verification_report_from(
-        media_info={"type": "video", "name": f.filename, "diarization_mode": "off"},
-        transcript_text=transcript,
-        segments=segments,
-    )
 
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
     token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
 
     # PDF payload token
@@ -687,7 +633,6 @@ def upload_video_simple():
         filename=f.filename,
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=None,
         segments=segments,
     )
@@ -698,11 +643,9 @@ def upload_video_simple():
         transcript=transcript,
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=None,
         token_txt=token_txt,
         token_srt=token_srt,
-        token_json=token_json,
         media_url=url_for("download", token=token_media),
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
@@ -738,18 +681,11 @@ def upload_video_diarized():
             s["uz"] = uz
 
     srt = build_srt_from_segments(segments)
-    verification = verification_report_from(
-       media_info={"type": "video", "name": f.filename, "diarization_mode": mode_used},
-       transcript_text=transcript,
-       segments=segments,
-    )
     meta = diarization_summary(segments)
 
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
     token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
 
     token_pdfdata = _register_pdf_payload(
@@ -758,7 +694,6 @@ def upload_video_diarized():
         filename=f.filename,
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=meta,
         segments=segments,
     )
@@ -769,11 +704,9 @@ def upload_video_diarized():
         transcript=transcript_with_speakers(segments),
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=meta,
         token_txt=token_txt,
         token_srt=token_srt,
-        token_json=token_json,
         media_url=url_for("download", token=token_media),
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
@@ -809,17 +742,10 @@ def upload_audio_simple():
             s["uz"] = uz
 
     srt = build_srt_from_segments(segments)
-    verification = verification_report_from(
-        media_info={"type": "audio", "name": f.filename, "diarization_mode": "off"},
-        transcript_text=transcript,
-        segments=segments,
-    )
 
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
     token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
 
     token_pdfdata = _register_pdf_payload(
@@ -828,7 +754,6 @@ def upload_audio_simple():
         filename=f.filename,
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=None,
         segments=segments,
     )
@@ -839,11 +764,9 @@ def upload_audio_simple():
         transcript=transcript,
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=None,
         token_txt=token_txt,
         token_srt=token_srt,
-        token_json=token_json,
         media_url=url_for("download", token=token_media),
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
@@ -879,18 +802,11 @@ def upload_audio_diarized():
             s["uz"] = uz
 
     srt = build_srt_from_segments(segments)
-    verification = verification_report_from(
-        media_info={"type": "audio", "name": f.filename, "diarization_mode": mode_used},
-        transcript_text=transcript,
-        segments=segments,
-    )
     meta = diarization_summary(segments)
 
     base = os.path.splitext(f.filename)[0]
     token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
     token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                   "application/json", f"{base}_verification.json")
     token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
 
     token_pdfdata = _register_pdf_payload(
@@ -899,7 +815,6 @@ def upload_audio_diarized():
         filename=f.filename,
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=meta,
         segments=segments,
     )
@@ -910,11 +825,9 @@ def upload_audio_diarized():
         transcript=transcript_with_speakers(segments),
         summary=summary,
         summary_uz=summary_uz,
-        verification=verification,
         meta=meta,
         token_txt=token_txt,
         token_srt=token_srt,
-        token_json=token_json,
         media_url=url_for("download", token=token_media),
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
@@ -983,17 +896,10 @@ def ingest_youtube_simple():
                 s["uz"] = uz
 
         srt = build_srt_from_segments(segments)
-        verification = verification_report_from(
-            media_info={"type": "audio", "name": title or "YouTube", "diarization_mode": "off"},
-            transcript_text=transcript,
-            segments=segments,
-        )
 
         base = (title or "youtube").replace("/", "_").replace("\\", "_").strip()
         token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
         token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-        token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                       "application/json", f"{base}_verification.json")
 
         token_media = register_download(media_bytes, media_mime, media_filename or f"{base}.mp4")
         media_url = url_for("download", token=token_media)
@@ -1004,7 +910,6 @@ def ingest_youtube_simple():
             filename=title or "YouTube",
             summary=summary,
             summary_uz=summary_uz,
-            verification=verification,
             meta=None,
             segments=segments,
         )
@@ -1015,11 +920,9 @@ def ingest_youtube_simple():
             transcript=transcript,
             summary=summary,
             summary_uz=summary_uz,
-            verification=verification,
             meta=None,
             token_txt=token_txt,
             token_srt=token_srt,
-            token_json=token_json,
             media_url=media_url,
             media_type="video",
             segments_json=json.dumps(segments, ensure_ascii=False),
@@ -1059,18 +962,11 @@ def ingest_youtube_diarized():
                 s["uz"] = uz
 
         srt = build_srt_from_segments(segments)
-        verification = verification_report_from(
-            media_info={"type": "audio", "name": title or "YouTube", "diarization_mode": mode_used},
-            transcript_text=transcript,
-            segments=segments,
-        )
         meta = diarization_summary(segments)
 
         base = (title or "youtube").replace("/", "_").replace("\\", "_").strip()
         token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
         token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-        token_json = register_download(json.dumps(verification, ensure_ascii=False, indent=2).encode("utf-8"),
-                                       "application/json", f"{base}_verification.json")
 
         with open(video_path, "rb") as fh:
             media_bytes = fh.read()
@@ -1082,7 +978,6 @@ def ingest_youtube_diarized():
             filename=title or "YouTube",
             summary=summary,
             summary_uz=summary_uz,
-            verification=verification,
             meta=None,
             segments=segments,
         )
@@ -1093,11 +988,9 @@ def ingest_youtube_diarized():
             transcript=transcript_with_speakers(segments),
             summary=summary,
             summary_uz=summary_uz,
-            verification=verification,
             meta=meta,
             token_txt=token_txt,
             token_srt=token_srt,
-            token_json=token_json,
             media_url=url_for("download", token=token_media),
             media_type="audio",
             segments_json=json.dumps(segments, ensure_ascii=False),
@@ -1109,14 +1002,15 @@ def ingest_youtube_diarized():
 # ---------- downloads ----------
 @app.get("/download/<token>")
 def download(token: str):
-    # one-shot + TTL safety (in case user never downloads)
-    item = DOWNLOADS.pop(token, None)
+    # allow multiple range requests while TTL cleanup handles expiry
+    item = DOWNLOADS.get(token)
     if not item:
         return "Not found or expired", 404
+
     return send_file(
         BytesIO(item["data"]),
         mimetype=item["mimetype"],
-        as_attachment=True,
+        as_attachment=True,  # you can leave this or set False if you prefer inline
         download_name=item["filename"],
     )
 
