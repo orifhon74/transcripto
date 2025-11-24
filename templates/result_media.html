@@ -6,112 +6,179 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0f172a;         /* deep navy */
-      --card: #1e293b;       /* panel bg */
-      --muted: #94a3b8;      /* muted text */
-      --text: #f9fafb;       /* main text */
-      --border: #334155;     /* panel border */
-      --accent: #3b82f6;     /* highlight */
-      --accent-soft: #1e40af;/* highlight bg */
-      --uz: #e5ffcc;         /* uzbek line color */
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f9fafb;
+      --muted: #cbd5e1;
+      --border: #475569;
+      --accent: #3b82f6;
+      --accent-soft: #1e40af;
+      --uz: #e6ffb2;
     }
-    body { background: var(--bg); color: var(--text); min-height: 100vh; }
-    a { text-decoration: none; }
-
+    body {
+      background: radial-gradient(circle at top, #111827 0, #020617 45%, #020617 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
     .card {
       background: var(--card);
+      border-radius: 1rem;
       border: 1px solid var(--border);
-      border-radius: 0.9rem;
-      box-shadow: 0 6px 18px rgba(0,0,0,.25);
+      box-shadow: 0 16px 40px rgba(0,0,0,.65);
     }
     .btn-row a, .btn-row button { margin-right:.5rem; margin-bottom:.5rem; }
     .badge-row { gap:.5rem; }
 
-    /* Player */
-    .media-shell video, .media-shell audio { width:100%; border-radius:.6rem; outline:none; }
-    .player-tip { color: var(--muted); }
-
-    /* Transcript */
-    .transcript-pane { max-height: 72vh; overflow:auto; border:1px dashed var(--border); border-radius:.6rem; }
-    .seg { padding:.6rem .8rem; border-bottom:1px dashed var(--border); cursor:pointer; display:flex; gap:.6rem; align-items:flex-start; color: var(--text); }
-    .seg:last-child { border-bottom:none; }
-    .seg:hover { background: rgba(255,255,255,.05); }
-    .seg.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
-
-    .ts { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; color: var(--muted); min-width:4.5rem; }
-    .spk { font-weight:600; color: #60a5fa; margin-right:.25rem; }
-
-    .kbd { background:#1e293b; color:#f9fafb; padding:.15rem .35rem; border-radius:.35rem; font-size:.85rem; }
-
-    pre.json { white-space: pre-wrap; color:var(--text); background:#0f172a; border-radius:.5rem; padding:1rem; border:1px solid var(--border); }
-
-    @media (min-width: 992px) {
-      .sticky-col { position: sticky; top: 1.25rem; }
+    /* override bootstrap muted text for dark bg */
+    .text-secondary,
+    .text-muted {
+      color: var(--muted) !important;
     }
 
-    /* Bright headings */
-    h1, h2, h3, h4, h5, h6, .card-title { color: var(--text) !important; }
+    .media-shell video,
+    .media-shell audio {
+      width:100%;
+      border-radius:.75rem;
+      outline:none;
+      background:#000;
+    }
+    .player-tip { color: var(--muted); }
 
-    /* List items inside cards */
-    .card ul li, .card ul li strong { color: var(--text) !important; }
+    .transcript-pane {
+      max-height: 72vh;
+      overflow:auto;
+      border-radius:.75rem;
+      border:1px dashed var(--border);
+      background: radial-gradient(circle at top left, rgba(15,23,42,.9), #020617);
+    }
+    .seg {
+      padding:.6rem .9rem;
+      border-bottom:1px dashed rgba(31,41,55,.8);
+      cursor:pointer;
+      display:flex;
+      gap:.7rem;
+      align-items:flex-start;
+      color: var(--text);
+      font-size:.95rem;
+    }
+    .seg:last-child { border-bottom:none; }
+    .seg:hover { background: rgba(15,23,42,.9); }
+    .seg.active {
+      background: linear-gradient(90deg, rgba(37,99,235,.3), transparent);
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+    .ts {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size:.8rem;
+      color: #e2e8f0;
+      min-width:4.2rem;
+      padding-top:.1rem;
+    }
+    .spk {
+      font-weight:600;
+      color: #60a5fa;
+      margin-right:.35rem;
+    }
+    .kbd {
+      background:#111827;
+      color:#e5e7eb;
+      padding:.15rem .35rem;
+      border-radius:.35rem;
+      font-size:.8rem;
+      border:1px solid #374151;
+    }
+    .summary-box {
+      background: radial-gradient(circle at top, #0b1120, #020617);
+      border-radius:.75rem;
+      border:1px solid var(--border);
+    }
+    .uz-label { color: var(--uz); }
+    .seg .uz {
+      display:none;
+      color: var(--uz);
+      font-style: italic;
+      margin-top:.25rem;
+      font-size:.9rem;
+    }
+    .uz-on .seg .uz { display:block; }
 
-    /* Details/summary */
-    details > summary { color: var(--text) !important; }
-    details > summary::marker { color: var(--muted); }
+    .btn-outline-secondary {
+      color: var(--muted) !important;
+      border-color: var(--muted) !important;
+    }
+    .btn-outline-secondary:hover {
+      background:#111827 !important;
+      color: var(--text) !important;
+    }
+    .btn-outline-warning {
+      color:#fde68a !important;
+      border-color:#fde68a !important;
+    }
 
-    /* Uzbek lines toggle */
-    .seg .uz { display: none; color: var(--uz); font-style: italic; margin-top: .25rem; }
-    .uz-on .seg .uz { display: block; }
+    @media (min-width: 992px) {
+      .sticky-col { position: sticky; top: 1.5rem; }
+    }
   </style>
 </head>
 <body>
   <div class="container py-5">
-    <!-- Header + actions -->
+    <!-- Header -->
     <div class="text-center mb-4">
       <h1 class="fw-bold">Transcription Result</h1>
-      <p class="text-light mb-3">{{ version }}</p>
+      <p class="text-secondary mb-3">{{ version }}</p>
 
       <div class="d-flex justify-content-center flex-wrap btn-row">
-        <a href="{{ url_for('download', token=token_txt) }}" class="btn btn-success btn-lg">⬇ Transcript (.txt)</a>
-        <a href="{{ url_for('download', token=token_srt) }}" class="btn btn-primary btn-lg">⬇ Subtitles (.srt)</a>
+        <a href="{{ url_for('media.download', token=token_txt) }}" class="btn btn-success btn-lg">
+          ⬇ Transcript (.txt)
+        </a>
+        <a href="{{ url_for('media.download', token=token_srt) }}" class="btn btn-primary btn-lg">
+          ⬇ Subtitles (.srt)
+        </a>
 
         {% if token_pdf %}
-          <a href="{{ url_for('download_pdf', token=token_pdf) }}" class="btn btn-warning btn-lg">⬇ PDF Report</a>
+          <a href="{{ url_for('media.download_pdf', token=token_pdf) }}" class="btn btn-warning btn-lg">
+            ⬇ PDF Report
+          </a>
         {% endif %}
 
-        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg">← Back</a>
+        <a href="{{ url_for('media.index') }}" class="btn btn-outline-secondary btn-lg">
+          ← Back
+        </a>
 
-        <!-- Uzbek toggle -->
         <button id="toggle-uz" type="button" class="btn btn-outline-warning btn-lg">
-          🇺🇿 Uzbek
+          🌐 Translations (UZ)
         </button>
       </div>
     </div>
 
-    <!-- Speaker info badges -->
+    <!-- Speaker badges -->
     <div class="d-flex justify-content-center mb-3 badge-row">
       {% if meta and meta.enabled %}
-        <span class="badge text-bg-dark">Speakers: {{ meta.count }}</span>
+        <span class="badge text-bg-dark border border-secondary">Speakers: {{ meta.count }}</span>
         <span class="badge text-bg-secondary">{{ meta.speakers | join(", ") }}</span>
       {% else %}
         <span class="badge text-bg-warning text-dark">Diarization: Off</span>
       {% endif %}
     </div>
 
-    <!-- Two-column layout -->
+    <!-- Main layout -->
     <div class="row g-4">
-      <!-- LEFT: Transcript -->
+      <!-- Transcript -->
       <div class="col-lg-7">
         <div class="card p-3">
           <div class="d-flex align-items-center justify-content-between mb-2">
-            <h4 class="m-0">📜 Transcript</h4>
-            <small class="text-secondary">Click a line to <span class="kbd">seek</span>. Active line highlights.</small>
+            <div>
+              <h4 class="mb-0" style="color:powderblue;">📜 Transcript</h4>
+              <small class="text-secondary">
+                Click a line to <span class="kbd">seek</span> the player. Active line auto-highlights.
+              </small>
+            </div>
           </div>
           <div id="transcript" class="transcript-pane"></div>
         </div>
       </div>
 
-      <!-- RIGHT: Player + Summary -->
+      <!-- Player + summary -->
       <div class="col-lg-5">
         <div class="sticky-col">
           <div class="card p-3 mb-3 media-shell">
@@ -120,38 +187,43 @@
             {% else %}
               <audio id="player" controls src="{{ media_url }}"></audio>
             {% endif %}
-            <div class="mt-2 player-tip small">Tip: Space to play/pause. Use transcript to jump.</div>
+            <div class="mt-2 player-tip small">
+              Space = play/pause. Use transcript to jump. Highlight follows playback.
+            </div>
           </div>
 
           {% if summary %}
-          <div class="card p-3">
-            <h4 class="mb-2">✨ Summary</h4>
-            <div style="white-space: pre-wrap; color: var(--text)">{{ summary }}</div>
-
-            {% if summary_uz %}
-              <hr class="my-2" />
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <span class="badge text-bg-warning text-dark">UZ</span>
-                <strong style="color: var(--uz);">Uzbek Summary</strong>
+            <div class="summary-box p-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h4 class="mb-0" style="color:powderblue;">✨ Summary</h4>
               </div>
-              <div style="white-space: pre-wrap; color: var(--uz);">{{ summary_uz }}</div>
-            {% endif %}
-          </div>
+              <div style="white-space: pre-wrap; color: var(--text); font-size:.95rem;">
+                {{ summary }}
+              </div>
+
+              {% if summary_uz %}
+                <hr class="my-2" />
+                <div class="d-flex align-items-center gap-2 mb-1">
+                  <span class="badge text-bg-warning text-dark">UZ</span>
+                  <strong class="uz-label">Uzbek Summary</strong>
+                </div>
+                <div style="white-space: pre-wrap; color: var(--uz); font-size:.95rem;">
+                  {{ summary_uz }}
+                </div>
+              {% endif %}
+            </div>
           {% endif %}
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Data + Interactions -->
+  <!-- Data + interactions -->
   <script>
-    // Segments injected from Flask
+    // Segments from Flask
     window.SEGMENTS = {{ segments_json | safe }};
-
-    // Uzbek default state (server can pre-enable)
     let uzOn = {{ 'true' if show_uz else 'false' }};
 
-    // HH:MM:SS formatter
     function fmt(t) {
       t = Math.max(0, t || 0);
       const h = Math.floor(t / 3600);
@@ -162,8 +234,8 @@
              String(s).padStart(2,'0');
     }
 
-    // Render transcript
     const container = document.getElementById('transcript');
+
     function renderTranscript(segs) {
       const frag = document.createDocumentFragment();
       segs.forEach((s, i) => {
@@ -178,11 +250,10 @@
         ts.textContent = fmt(s.start);
 
         const wrap = document.createElement('div');
-        const spk = s.speaker ? `<span class="spk">${s.speaker}:</span> </span>` : '';
+        const spk = s.speaker ? `<span class="spk">${s.speaker}:</span> ` : '';
         const safe = (s.text || '').replace(/</g, "&lt;");
         wrap.innerHTML = spk + safe;
 
-        // Uzbek line, if attached by server
         if (s.uz) {
           const uz = document.createElement('div');
           uz.className = 'uz';
@@ -195,10 +266,9 @@
 
         row.addEventListener('click', () => {
           const player = document.getElementById('player');
-          if (player) {
-            player.currentTime = s.start + 0.01;
-            player.play().catch(()=>{});
-          }
+          if (!player) return;
+          player.currentTime = s.start + 0.01;
+          player.play().catch(() => {});
         });
 
         frag.appendChild(row);
@@ -207,7 +277,6 @@
       container.appendChild(frag);
     }
 
-    // Live highlight
     function setupHighlight() {
       const player = document.getElementById('player');
       const rows = Array.from(document.querySelectorAll('.seg'));
@@ -234,17 +303,18 @@
         if (rows[i]) {
           rows[i].classList.add('active');
           const pane = document.querySelector('.transcript-pane');
-          const r = rows[i].getBoundingClientRect();
-          const pr = pane.getBoundingClientRect();
-          if (r.top < pr.top + 40 || r.bottom > pr.bottom - 40) {
-            rows[i].scrollIntoView({ block: 'center', behavior: 'smooth' });
+          if (pane) {
+            const r = rows[i].getBoundingClientRect();
+            const pr = pane.getBoundingClientRect();
+            if (r.top < pr.top + 40 || r.bottom > pr.bottom - 40) {
+              rows[i].scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
           }
         }
         last = i;
       });
     }
 
-    // Uzbek toggle button
     const uzBtn = document.getElementById('toggle-uz');
     function applyUzToggle() {
       if (uzOn) {
@@ -257,9 +327,11 @@
         uzBtn.classList.remove('btn-warning');
       }
     }
-    uzBtn.addEventListener('click', () => { uzOn = !uzOn; applyUzToggle(); });
+    uzBtn.addEventListener('click', () => {
+      uzOn = !uzOn;
+      applyUzToggle();
+    });
 
-    // Init
     renderTranscript(window.SEGMENTS || []);
     setupHighlight();
     applyUzToggle();

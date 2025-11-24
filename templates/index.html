@@ -6,181 +6,425 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body {
-      background: linear-gradient(135deg, #1d2671, #c33764);
+      background: radial-gradient(circle at top, #1d2671 0, #020617 40%, #020617 100%);
       min-height: 100vh;
-      color: #fff;
+      color: #e5e7eb;
+    }
+    .app-shell {
+      max-width: 1200px;
+      margin: 0 auto;
     }
     .card {
       border: none;
-      border-radius: 1.25rem;
-      box-shadow: 0 8px 16px rgba(0,0,0,.3);
-      transition: transform .2s;
+      border-radius: 1.1rem;
+      box-shadow: 0 8px 20px rgba(0,0,0,.4);
+      background: rgba(15,23,42,.95);
+      backdrop-filter: blur(10px);
     }
-    .card:hover { transform: translateY(-4px); }
-    h1 { font-weight: 700; margin-bottom: 1rem; }
-    .btn-custom { border-radius: 2rem; font-weight: 500; }
+    .card-header {
+      background: transparent;
+      border-bottom: 1px solid rgba(148,163,184,.3);
+    }
+    .pill-tabs .nav-link {
+      border-radius: 999px;
+      padding: .25rem .9rem;
+      font-size: .9rem;
+      color: #e5e7eb;
+    }
+    .pill-tabs .nav-link.active {
+      background: #3b82f6;
+      color: #f9fafb;
+    }
+    h1 { font-weight: 700; }
+    .sub { color: #e5e7eb; }
+
     .notice {
-      background: rgba(255,255,255,.1);
-      border: 1px solid rgba(255,255,255,.2);
-      padding: 1rem;
-      border-radius: .75rem;
-      margin: 1.5rem auto 2rem;
-      max-width: 800px;
-      text-align: center;
+      background: rgba(15,23,42,.9);
+      border-radius: .9rem;
+      border: 1px solid rgba(148,163,184,.5);
+      color: #e5e7eb;
     }
-    /* checkbox label readability on dark card */
-    .form-check-label { color: rgba(255,255,255,.9); }
-    .form-text { color: rgba(255,255,255,.7); }
+    .notice small { color: #cbd5e1; }
+    .notice code {
+      background: rgba(15,23,42,.8);
+      padding: .15rem .4rem;
+      border-radius: .35rem;
+      font-size: .85rem;
+      color: #e5e7eb;
+    }
+
+    .section-title {
+      text-transform: uppercase;
+      font-size: .8rem;
+      letter-spacing: .08em;
+      color: #e2e8f0;
+    }
+
+    /* Bootstrappy text helpers on dark bg */
+    .text-muted,
+    .text-secondary,
+    .form-text {
+      color: #cbd5e1 !important;
+    }
+
+    .form-label,
+    .form-check-label {
+      color: #e5e7eb !important;
+    }
+
+    /* Inputs on dark background */
+    input, textarea, select {
+      color: #e5e7eb !important;
+      background: #020617 !important;
+      border-color: #475569 !important;
+    }
+    input::placeholder {
+      color: #9ca3af !important;
+    }
+
+    /* Buttons */
+    .btn-rounded {
+      border-radius: 999px;
+      font-weight: 500;
+    }
+    .btn-outline-light,
+    .btn-outline-secondary {
+      color: #e5e7eb !important;
+      border-color: #94a3b8 !important;
+    }
+    .btn-outline-light:hover,
+    .btn-outline-secondary:hover {
+      background: #1f2937 !important;
+    }
   </style>
 </head>
 <body>
-  <div class="container py-5">
-    <h1 class="text-center">AI Transcription & Summarization</h1>
-    <p class="lead text-center">Upload <strong>video</strong>, <strong>audio</strong>, or <strong>text</strong> to get transcripts and summaries</p>
+  <div class="container py-5 app-shell">
+    <!-- Header -->
+    <header class="mb-4 text-center">
+      <h1>AI Transcription & Summarization</h1>
+      <p class="sub mb-3">
+        Upload <strong>video</strong>, <strong>audio</strong>, or <strong>text</strong> — or paste a <strong>YouTube link</strong> —
+        to get transcripts and summaries.
+      </p>
+    </header>
 
-    <!-- Notice about diarization -->
-    <div class="notice">
-      <strong>⏱ Processing time:</strong> On this free server, transcription can take about
-      <strong>1–3 minutes per minute of media</strong> (faster for Simple, slower for Differentiated).
-      If you only need a transcript + summary, choose <strong>Simple (faster)</strong>.
-      <br>
-      <small class="text-light-50">Tip: shorter clips or the “Simple” mode finish much quicker.</small>
-    </div>
-
-    <div class="row g-4 mt-4">
-      <!-- Video -->
-      <div class="col-md-6 col-lg-4">
-        <div class="card bg-dark text-white h-100">
-          <div class="card-body text-center">
-            <h4 class="card-title">🎥 Video Transcription</h4>
-
-            <!-- Video Simple -->
-            <form action="{{ url_for('upload_video_simple') }}" method="post" enctype="multipart/form-data" class="mt-3">
-              <input type="file" name="video_file" class="form-control mb-2" accept=".mp4,.avi,.mov,.mkv" required>
-
-              <!-- Uzbek toggle -->
-              <div class="form-check text-start mt-2 mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="translate_uz_video_simple" name="translate_uz">
-                <label class="form-check-label" for="translate_uz_video_simple">
-                  Add Uzbek translation (slower)
-                </label>
-                <div class="form-text">Adds per-line Uzbek under the transcript and an Uzbek summary.</div>
-              </div>
-
-              <button type="submit" class="btn btn-custom btn-primary w-100 mb-2">Simple (faster)</button>
-            </form>
-
-            <!-- Video Differentiated -->
-            <form action="{{ url_for('upload_video_diarized') }}" method="post" enctype="multipart/form-data" class="mt-2">
-              <input type="file" name="video_file_d" class="form-control mb-2" accept=".mp4,.avi,.mov,.mkv" required>
-
-              <!-- Uzbek toggle -->
-              <div class="form-check text-start mt-2 mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="translate_uz_video_d" name="translate_uz">
-                <label class="form-check-label" for="translate_uz_video_d">
-                  Add Uzbek translation (slower)
-                </label>
-                <div class="form-text">Diarization + Uzbek translations will take longer.</div>
-              </div>
-
-              <button type="submit" class="btn btn-custom btn-outline-light w-100">Differentiated (slower)</button>
-            </form>
-          </div>
-        </div>
+    <!-- Processing notice -->
+    <section class="notice p-3 p-md-3 mb-4 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+      <div>
+        <span class="fw-semibold">⏱ Processing time</span><br>
+        <small>
+          On this CPU-only server, expect roughly <strong>1–3 minutes per minute of media</strong>.
+          <br>
+          <strong>Simple</strong> = faster. <strong>Differentiated</strong> = slower (speaker separation).
+        </small>
       </div>
-
-      <!-- Audio -->
-      <div class="col-md-6 col-lg-4">
-        <div class="card bg-dark text-white h-100">
-          <div class="card-body text-center">
-            <h4 class="card-title">🎧 Audio Transcription</h4>
-
-            <!-- Audio Simple -->
-            <form action="{{ url_for('upload_audio_simple') }}" method="post" enctype="multipart/form-data" class="mt-3">
-              <input type="file" name="audio_file" class="form-control mb-2" accept=".wav,.mp3,.flac" required>
-
-              <!-- Uzbek toggle -->
-              <div class="form-check text-start mt-2 mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="translate_uz_audio_simple" name="translate_uz">
-                <label class="form-check-label" for="translate_uz_audio_simple">
-                  Add Uzbek translation (slower)
-                </label>
-                <div class="form-text">Adds Uzbek under each line and an Uzbek summary.</div>
-              </div>
-
-              <button type="submit" class="btn btn-custom btn-primary w-100 mb-2">Simple (faster)</button>
-            </form>
-
-            <!-- Audio Differentiated -->
-            <form action="{{ url_for('upload_audio_diarized') }}" method="post" enctype="multipart/form-data" class="mt-2">
-              <input type="file" name="audio_file_d" class="form-control mb-2" accept=".wav,.mp3,.flac" required>
-
-              <!-- Uzbek toggle -->
-              <div class="form-check text-start mt-2 mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="translate_uz_audio_d" name="translate_uz">
-                <label class="form-check-label" for="translate_uz_audio_d">
-                  Add Uzbek translation (slower)
-                </label>
-                <div class="form-text">Diarization + Uzbek translations may be significantly slower.</div>
-              </div>
-
-              <button type="submit" class="btn btn-custom btn-outline-light w-100">Differentiated (slower)</button>
-            </form>
-          </div>
-        </div>
+      <div class="text-md-end">
+        <small>
+          Tip: keep clips short when testing.
+          Use <code>Simple</code> first unless you really need speaker labels.
+        </small>
       </div>
+    </section>
 
-      <!-- Text -->
-      <div class="col-md-6 col-lg-4">
-        <div class="card bg-dark text-white h-100">
-          <div class="card-body text-center">
-            <h4 class="card-title">📝 Text Summarization</h4>
-            <form action="{{ url_for('upload_text') }}" method="post" enctype="multipart/form-data" class="mt-3">
-              <input type="file" name="text_file" class="form-control mb-2" accept=".txt" required>
-              <button type="submit" class="btn btn-custom btn-success w-100">Summarize</button>
-            </form>
+    <div class="row g-4">
+      <!-- Media (Video/Audio) -->
+      <div class="col-lg-7">
+        <!-- Video -->
+        <div class="card mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+              <div class="section-title mb-1">Media</div>
+              <h5 class="mb-0" style="color:powderblue;">🎥 Video Transcription</h5>
+            </div>
+            <ul class="nav nav-pills pill-tabs" id="videoTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="video-simple-tab" data-bs-toggle="tab"
+                        data-bs-target="#video-simple" type="button" role="tab">
+                  Simple
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="video-diff-tab" data-bs-toggle="tab"
+                        data-bs-target="#video-diff" type="button" role="tab">
+                  Differentiated
+                </button>
+              </li>
+            </ul>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- YouTube row -->
-    <div class="row g-4 mt-2">
-      <div class="col-md-6">
-        <div class="card bg-dark text-white h-100">
           <div class="card-body">
-            <h4 class="card-title">▶️ YouTube (Simple, captions-first)</h4>
-            <form action="{{ url_for('ingest_youtube_simple') }}" method="post" class="mt-2">
-              <input type="url" name="youtube_url" class="form-control input-dark mb-2" placeholder="https://www.youtube.com/watch?v=..." required>
-              <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="translate_uz_yt_simple" name="translate_uz">
-                <label class="form-check-label" for="translate_uz_yt_simple">Add Uzbek translation (slower)</label>
+            <p class="text-muted mb-2">
+              Simple: just transcript + summary. Differentiated: separates speakers when possible.
+            </p>
+
+            <div class="tab-content" id="videoTabsContent">
+              <!-- Simple -->
+              <div class="tab-pane fade show active" id="video-simple" role="tabpanel">
+                <form action="{{ url_for('media.upload_video_simple') }}" method="post"
+                      enctype="multipart/form-data" class="mt-2">
+                  <div class="mb-2">
+                    <label class="form-label">Video file</label>
+                    <input type="file" name="video_file" class="form-control"
+                           accept=".mp4,.avi,.mov,.mkv" required>
+                    <div class="form-text">Best results with clear speech and .mp4 files.</div>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="form-label mb-1">Translations (optional)</div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="1"
+                             id="translate_uz_video_simple" name="translate_uz">
+                      <label class="form-check-label" for="translate_uz_video_simple">
+                        Add Uzbek transcript + summary (slower)
+                      </label>
+                    </div>
+                    <div class="form-text">
+                      Currently supports <strong>Uzbek</strong>. More languages can be added later without changing the flow.
+                    </div>
+                  </div>
+
+                  <button type="submit" class="btn btn-primary btn-rounded w-100">
+                    Run Simple Transcription
+                  </button>
+                </form>
               </div>
-              <button type="submit" class="btn btn-primary w-100">Ingest</button>
-            </form>
-            <div class="form-text mt-2">Tries English captions first. If none, downloads audio and runs Whisper.</div>
+
+              <!-- Differentiated -->
+              <div class="tab-pane fade" id="video-diff" role="tabpanel">
+                <form action="{{ url_for('media.upload_video_diarized') }}" method="post"
+                      enctype="multipart/form-data" class="mt-2">
+                  <div class="mb-2">
+                    <label class="form-label">Video file</label>
+                    <input type="file" name="video_file_d" class="form-control"
+                           accept=".mp4,.avi,.mov,.mkv" required>
+                    <div class="form-text">Use for multi-speaker content, interviews, podcasts.</div>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="form-label mb-1">Translations (optional)</div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="1"
+                             id="translate_uz_video_d" name="translate_uz">
+                      <label class="form-check-label" for="translate_uz_video_d">
+                        Add Uzbek transcript + summary (slower)
+                      </label>
+                    </div>
+                    <div class="form-text">
+                      Diarization + translations is the slowest path. Use only when needed.
+                    </div>
+                  </div>
+
+                  <button type="submit" class="btn btn-outline-light btn-rounded w-100">
+                    Run Differentiated Transcription
+                  </button>
+                </form>
+              </div>
+            </div>
           </div>
         </div>
+
+        <!-- Audio -->
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+              <div class="section-title mb-1">Media</div>
+              <h5 class="mb-0" style="color:powderblue;">🎧 Audio Transcription</h5>
+            </div>
+            <ul class="nav nav-pills pill-tabs" id="audioTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="audio-simple-tab" data-bs-toggle="tab"
+                        data-bs-target="#audio-simple" type="button" role="tab">
+                  Simple
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="audio-diff-tab" data-bs-toggle="tab"
+                        data-bs-target="#audio-diff" type="button" role="tab">
+                  Differentiated
+                </button>
+              </li>
+            </ul>
+          </div>
+          <div class="card-body">
+            <p class="text-muted mb-2">
+              Works best with mono, clean speech. Music-heavy tracks will be worse.
+            </p>
+
+            <div class="tab-content" id="audioTabsContent">
+              <!-- Simple -->
+              <div class="tab-pane fade show active" id="audio-simple" role="tabpanel">
+                <form action="{{ url_for('media.upload_audio_simple') }}" method="post"
+                      enctype="multipart/form-data" class="mt-2">
+                  <div class="mb-2">
+                    <label class="form-label">Audio file</label>
+                    <input type="file" name="audio_file" class="form-control"
+                           accept=".wav,.mp3,.flac" required>
+                    <div class="form-text">Recommended: .wav, 16kHz mono if possible.</div>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="form-label mb-1">Translations (optional)</div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="1"
+                             id="translate_uz_audio_simple" name="translate_uz">
+                      <label class="form-check-label" for="translate_uz_audio_simple">
+                        Add Uzbek transcript + summary (slower)
+                      </label>
+                    </div>
+                  </div>
+
+                  <button type="submit" class="btn btn-primary btn-rounded w-100">
+                    Run Simple Transcription
+                  </button>
+                </form>
+              </div>
+
+              <!-- Differentiated -->
+              <div class="tab-pane fade" id="audio-diff" role="tabpanel">
+                <form action="{{ url_for('media.upload_audio_diarized') }}" method="post"
+                      enctype="multipart/form-data" class="mt-2">
+                  <div class="mb-2">
+                    <label class="form-label">Audio file</label>
+                    <input type="file" name="audio_file_d" class="form-control"
+                           accept=".wav,.mp3,.flac" required>
+                    <div class="form-text">Use for meetings, podcasts, multi-speaker audio.</div>
+                  </div>
+
+                  <div class="mb-3">
+                    <div class="form-label mb-1">Translations (optional)</div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="1"
+                             id="translate_uz_audio_d" name="translate_uz">
+                      <label class="form-check-label" for="translate_uz_audio_d">
+                        Add Uzbek transcript + summary (slower)
+                      </label>
+                    </div>
+                  </div>
+
+                  <button type="submit" class="btn btn-outline-light btn-rounded w-100">
+                    Run Differentiated Transcription
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <div class="col-md-6">
-        <div class="card bg-dark text-white h-100">
+      <!-- Text + YouTube -->
+      <div class="col-lg-5">
+        <!-- Text -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="section-title mb-1">Text</div>
+            <h5 class="mb-0" style="color:powderblue;">📝 Text Summarization</h5>
+          </div>
           <div class="card-body">
-            <h4 class="card-title">▶️ YouTube (Differentiated)</h4>
-            <form action="{{ url_for('ingest_youtube_diarized') }}" method="post" class="mt-2">
-              <input type="url" name="youtube_url_d" class="form-control input-dark mb-2" placeholder="https://www.youtube.com/watch?v=..." required>
-              <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" value="1" id="translate_uz_yt_d" name="translate_uz">
-                <label class="form-check-label" for="translate_uz_yt_d">Add Uzbek translation (slower)</label>
+            <p class="text-muted">
+              Upload a <code>.txt</code> file to get a concise summary. Good for meeting notes, blog posts, etc.
+            </p>
+            <form action="{{ url_for('media.upload_text') }}" method="post"
+                  enctype="multipart/form-data" class="mt-2">
+              <div class="mb-3">
+                <label class="form-label">Text file</label>
+                <input type="file" name="text_file" class="form-control" accept=".txt" required>
               </div>
-              <button type="submit" class="btn btn-outline-light w-100">Ingest (slower)</button>
+              <button type="submit" class="btn btn-success btn-rounded w-100">
+                Summarize Text
+              </button>
             </form>
-            <div class="form-text mt-2">If captions exist, uses them (minimal diarization). Otherwise downloads audio and diarizes.</div>
           </div>
         </div>
+
+        <!-- YouTube -->
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+              <div class="section-title mb-1">Online</div>
+              <h5 class="mb-0" style="color:powderblue;">▶️ YouTube Ingest</h5>
+            </div>
+            <ul class="nav nav-pills pill-tabs" id="ytTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="yt-simple-tab" data-bs-toggle="tab"
+                        data-bs-target="#yt-simple" type="button" role="tab">
+                  Simple
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="yt-diff-tab" data-bs-toggle="tab"
+                        data-bs-target="#yt-diff" type="button" role="tab">
+                  Differentiated
+                </button>
+              </li>
+            </ul>
+          </div>
+          <div class="card-body">
+            <p class="text-muted mb-2">
+              Paste a full YouTube URL. Simple mode prefers captions; Differentiated runs diarization on the audio.
+            </p>
+
+            <div class="tab-content" id="ytTabsContent">
+              <!-- Simple -->
+              <div class="tab-pane fade show active" id="yt-simple" role="tabpanel">
+                <form action="{{ url_for('youtube.ingest_youtube_simple') }}" method="post" class="mt-2">
+                  <div class="mb-2">
+                    <label class="form-label">YouTube URL</label>
+                    <input type="url" name="youtube_url" class="form-control"
+                           placeholder="https://www.youtube.com/watch?v=..." required>
+                  </div>
+                  <div class="mb-3">
+                    <div class="form-label mb-1">Translations (optional)</div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="1"
+                             id="translate_uz_yt_simple" name="translate_uz">
+                      <label class="form-check-label" for="translate_uz_yt_simple">
+                        Add Uzbek transcript + summary (slower)
+                      </label>
+                    </div>
+                    <div class="form-text">
+                      Uses English captions when available. Otherwise downloads and transcribes audio.
+                    </div>
+                  </div>
+                  <button type="submit" class="btn btn-primary btn-rounded w-100">
+                    Ingest YouTube (Simple)
+                  </button>
+                </form>
+              </div>
+
+              <!-- Differentiated -->
+              <div class="tab-pane fade" id="yt-diff" role="tabpanel">
+                <form action="{{ url_for('youtube.ingest_youtube_diarized') }}" method="post" class="mt-2">
+                  <div class="mb-2">
+                    <label class="form-label">YouTube URL</label>
+                    <input type="url" name="youtube_url_d" class="form-control"
+                           placeholder="https://www.youtube.com/watch?v=..." required>
+                  </div>
+                  <div class="mb-3">
+                    <div class="form-label mb-1">Translations (optional)</div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="1"
+                             id="translate_uz_yt_d" name="translate_uz">
+                      <label class="form-check-label" for="translate_uz_yt_d">
+                        Add Uzbek transcript + summary (slower)
+                      </label>
+                    </div>
+                    <div class="form-text">
+                      Always downloads audio and runs diarization. Slowest, but best for multi-speaker videos.
+                    </div>
+                  </div>
+                  <button type="submit" class="btn btn-outline-light btn-rounded w-100">
+                    Ingest YouTube (Differentiated)
+                  </button>
+                </form>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
     </div>
-
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -188,17 +432,15 @@
     function lockForm(e) {
       const form = e.target.closest('form');
       const btn = form.querySelector('button[type="submit"]');
-      if (btn) {
-        btn.disabled = true;
-        const original = btn.innerHTML;
-        btn.dataset.original = original;
-        btn.innerHTML = `
-          <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-          Processing…
-        `;
-      }
+      if (!btn) return;
+      btn.disabled = true;
+      const original = btn.innerHTML;
+      btn.dataset.original = original;
+      btn.innerHTML = `
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        Processing…
+      `;
     }
-    // Attach to all forms on the page
     document.querySelectorAll('form').forEach(f => {
       f.addEventListener('submit', lockForm);
     });
