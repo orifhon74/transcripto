@@ -7,7 +7,7 @@ from .diarization import (
     diarization_summary,
 )
 from .summarization import summarize_text
-from .translation import translate_texts_to_uz
+from .translation import translate_texts
 from .formatting import (
     build_srt_from_segments,
     transcript_with_speakers,

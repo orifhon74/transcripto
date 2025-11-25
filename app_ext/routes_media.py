@@ -25,7 +25,7 @@ from app_ext.transcription import (
     build_srt_from_segments,
     transcript_with_speakers,
     diarization_summary,
-    translate_texts_to_uz,
+    translate_texts,
 )
 from app_ext.downloads import DOWNLOADS, register_download, cleanup_downloads
 from app_ext.jobs import cleanup_jobs
@@ -92,16 +92,21 @@ def upload_video_simple():
         tmp.flush()
         segments, transcript = transcribe_video_simple(tmp.name)
 
-    summary = summarize_text(transcript)
-    summary_uz = ""
-    if translate_flag and summary:
-        summary_uz = "\n".join(translate_texts_to_uz([summary]))
+    target_lang = (request.form.get("target_lang") or "").strip()
 
-    if translate_flag and segments:
+    summary = summarize_text(transcript)
+    summary_tr = ""
+    if target_lang and summary:
+        summary_tr = "\n".join(translate_texts([summary], target_lang))
+
+    if target_lang and segments:
         seg_texts = [s.get("text", "") for s in segments]
-        uz_lines = translate_texts_to_uz(seg_texts)
-        for s, uz in zip(segments, uz_lines):
-            s["uz"] = uz
+        tr_lines = translate_texts(seg_texts, target_lang)
+        for s, tr in zip(segments, tr_lines):
+            # you can store by language code for future:
+            # s.setdefault("translations", {})[target_lang] = tr
+            # for now just reuse s["uz"] but rename later
+            s["uz"] = tr  # temporary until we generalize the frontend keys
 
     srt = build_srt_from_segments(segments)
 

@@ -9,7 +9,7 @@ from process_video import (
     build_srt_from_segments,
     transcript_with_speakers,
     diarization_summary,
-    translate_texts_to_uz,
+    translate_texts,
 )
 
 __all__ = [
@@ -21,5 +21,5 @@ __all__ = [
     "build_srt_from_segments",
     "transcript_with_speakers",
     "diarization_summary",
-    "translate_texts_to_uz",
+    "translate_texts",
 ]

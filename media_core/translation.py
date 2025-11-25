@@ -1,28 +1,34 @@
 # media_core/translation.py
 
-import json
 from openai import OpenAI
+import json
 
-_client = OpenAI()  # reads OPENAI_API_KEY
+_client = OpenAI()
 
+SUPPORTED_LANGS = {
+    "uz": "Uzbek",
+    "en": "English",
+    "ru": "Russian",
+    # add more as needed
+}
 
-def translate_texts_to_uz(texts: list[str], model: str = "gpt-4o-mini") -> list[str]:
-    """
-    Translate a list of short strings to Uzbek (uz). Returns a list of same length.
-    Keeps punctuation; avoids adding extra notes. Empty inputs -> empty outputs.
-    Batches to stay under token limits.
-    """
+def translate_texts(texts: list[str], target_lang: str, model: str = "gpt-4o-mini") -> list[str]:
     cleaned = [(t or "").strip() for t in texts]
     if not any(cleaned):
-        return [""] * len(texts)
+        return [""] * len(cleaned)
+
+    if target_lang not in SUPPORTED_LANGS:
+        # fallback: just echo original
+        return cleaned
 
     out = [""] * len(cleaned)
-
     BATCH = 60
+
     for i in range(0, len(cleaned), BATCH):
-        chunk = cleaned[i:i + BATCH]
+        chunk = cleaned[i:i+BATCH]
         prompt = (
-            "Translate the following lines to Uzbek (uz). "
+            f"Translate the following lines to {SUPPORTED_LANGS[target_lang]} "
+            "(language code: " + target_lang + "). "
             "Return ONLY a JSON array of strings, same order and length, no extra text.\n\n"
             + json.dumps(chunk, ensure_ascii=False)
         )
@@ -37,13 +43,11 @@ def translate_texts_to_uz(texts: list[str], model: str = "gpt-4o-mini") -> list[
                 max_tokens=1600,
             )
             content = (resp.choices[0].message.content or "").strip()
-            import json as _json
-            arr = _json.loads(content)
+            arr = json.loads(content)
             if isinstance(arr, list):
                 for j, v in enumerate(arr):
                     out[i + j] = (v or "").strip()
         except Exception:
-            # graceful fallback: keep English if translation fails
             for j, v in enumerate(chunk):
                 out[i + j] = v
     return out

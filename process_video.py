@@ -6,7 +6,7 @@ This keeps app.py working while we gradually move routes to app_ext/transcriptio
 """
 
 from media_core.summarization import summarize_text
-from media_core.translation import translate_texts_to_uz
+from media_core.translation import translate_texts
 from media_core.formatting import (
     build_srt_from_segments,
     transcript_with_speakers,
@@ -21,7 +21,7 @@ from media_core.diarization import (
 
 __all__ = [
     "summarize_text",
-    "translate_texts_to_uz",
+    "translate_texts",
     "build_srt_from_segments",
     "transcript_with_speakers",
     "transcribe_video_simple",
