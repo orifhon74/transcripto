@@ -5,9 +5,10 @@ from datetime import datetime
 from config import Config
 from .downloads import cleanup_downloads
 from .jobs import cleanup_jobs
-from .routes_media import bp as media_bp
+from .routes_media import media_bp
 from .routes_youtube import bp as youtube_bp
 from .routes_jobs import bp as jobs_bp
+from .routes_downloads import bp as downloads_bp
 
 _LAST_CLEAN = datetime.utcnow()
 
@@ -19,6 +20,7 @@ def init_app(app):
     app.register_blueprint(media_bp)
     app.register_blueprint(youtube_bp)
     app.register_blueprint(jobs_bp)
+    app.register_blueprint(downloads_bp)
 
     @app.before_request
     def periodic_cleanup():

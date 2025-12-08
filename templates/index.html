@@ -81,6 +81,11 @@
     input::placeholder {
       color: #9ca3af !important;
     }
+    select:focus,
+    input:focus {
+      box-shadow: 0 0 0 .15rem rgba(59,130,246,.4) !important;
+      border-color: #3b82f6 !important;
+    }
 
     /* Buttons */
     .btn-rounded {
@@ -99,17 +104,23 @@
 
     /* Make checkboxes visible on dark backgrounds */
     .form-check-input {
-      background-color: #0f172a !important;   /* deep navy background */
-      border: 2px solid #3b82f6 !important;   /* bright blue border */
+      background-color: #0f172a !important;
+      border: 2px solid #3b82f6 !important;
     }
-
     .form-check-input:checked {
-      background-color: #3b82f6 !important;   /* vivid blue */
+      background-color: #3b82f6 !important;
       border-color: #3b82f6 !important;
     }
-
     .form-check-input:checked[type="checkbox"] {
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='white' d='M16.707 5.293a1 1 0 0 1 0 1.414l-7.414 7.414a1 1 0 0 1-1.414 0L3.293 10.12a1 1 0 1 1 1.414-1.414l3.172 3.17 6.707-6.707a1 1 0 0 1 1.414 0z'/%3E%3C/svg%3E") !important;
+    }
+
+    .lang-label {
+      font-size: .9rem;
+      font-weight: 500;
+    }
+    .lang-help {
+      font-size: .8rem;
     }
   </style>
 </head>
@@ -185,16 +196,15 @@
                   </div>
 
                   <div class="mb-3">
-                    <div class="form-label mb-1">Translations (optional)</div>
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" value="1"
-                             id="translate_uz_video_simple" name="translate_uz">
-                      <label class="form-check-label" for="translate_uz_video_simple">
-                        Add Uzbek transcript + summary (slower)
-                      </label>
-                    </div>
-                    <div class="form-text">
-                      Currently supports <strong>Uzbek</strong>. More languages can be added later without changing the flow.
+                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
+                    <select class="form-select" name="target_lang">
+                      <option value="">None (keep original language)</option>
+                      {% for code, label in supported_langs.items() %}
+                        <option value="{{ code }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <div class="form-text lang-help">
+                      Adds a translated summary and translated lines under each segment.
                     </div>
                   </div>
 
@@ -216,15 +226,14 @@
                   </div>
 
                   <div class="mb-3">
-                    <div class="form-label mb-1">Translations (optional)</div>
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" value="1"
-                             id="translate_uz_video_d" name="translate_uz">
-                      <label class="form-check-label" for="translate_uz_video_d">
-                        Add Uzbek transcript + summary (slower)
-                      </label>
-                    </div>
-                    <div class="form-text">
+                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
+                    <select class="form-select" name="target_lang">
+                      <option value="">None (keep original language)</option>
+                      {% for code, label in supported_langs.items() %}
+                        <option value="{{ code }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <div class="form-text lang-help">
                       Diarization + translations is the slowest path. Use only when needed.
                     </div>
                   </div>
@@ -278,14 +287,13 @@
                   </div>
 
                   <div class="mb-3">
-                    <div class="form-label mb-1">Translations (optional)</div>
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" value="1"
-                             id="translate_uz_audio_simple" name="translate_uz">
-                      <label class="form-check-label" for="translate_uz_audio_simple">
-                        Add Uzbek transcript + summary (slower)
-                      </label>
-                    </div>
+                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
+                    <select class="form-select" name="target_lang">
+                      <option value="">None (keep original language)</option>
+                      {% for code, label in supported_langs.items() %}
+                        <option value="{{ code }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
                   </div>
 
                   <button type="submit" class="btn btn-primary btn-rounded w-100">
@@ -306,14 +314,13 @@
                   </div>
 
                   <div class="mb-3">
-                    <div class="form-label mb-1">Translations (optional)</div>
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" value="1"
-                             id="translate_uz_audio_d" name="translate_uz">
-                      <label class="form-check-label" for="translate_uz_audio_d">
-                        Add Uzbek transcript + summary (slower)
-                      </label>
-                    </div>
+                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
+                    <select class="form-select" name="target_lang">
+                      <option value="">None (keep original language)</option>
+                      {% for code, label in supported_langs.items() %}
+                        <option value="{{ code }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
                   </div>
 
                   <button type="submit" class="btn btn-outline-light btn-rounded w-100">
@@ -389,16 +396,15 @@
                            placeholder="https://www.youtube.com/watch?v=..." required>
                   </div>
                   <div class="mb-3">
-                    <div class="form-label mb-1">Translations (optional)</div>
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" value="1"
-                             id="translate_uz_yt_simple" name="translate_uz">
-                      <label class="form-check-label" for="translate_uz_yt_simple">
-                        Add Uzbek transcript + summary (slower)
-                      </label>
-                    </div>
-                    <div class="form-text">
-                      Uses English captions when available. Otherwise downloads and transcribes audio.
+                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
+                    <select class="form-select" name="target_lang">
+                      <option value="">None (keep original language)</option>
+                      {% for code, label in supported_langs.items() %}
+                        <option value="{{ code }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <div class="form-text lang-help">
+                      Uses English captions when available, otherwise downloads and transcribes audio.
                     </div>
                   </div>
                   <button type="submit" class="btn btn-primary btn-rounded w-100">
@@ -416,15 +422,14 @@
                            placeholder="https://www.youtube.com/watch?v=..." required>
                   </div>
                   <div class="mb-3">
-                    <div class="form-label mb-1">Translations (optional)</div>
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" value="1"
-                             id="translate_uz_yt_d" name="translate_uz">
-                      <label class="form-check-label" for="translate_uz_yt_d">
-                        Add Uzbek transcript + summary (slower)
-                      </label>
-                    </div>
-                    <div class="form-text">
+                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
+                    <select class="form-select" name="target_lang">
+                      <option value="">None (keep original language)</option>
+                      {% for code, label in supported_langs.items() %}
+                        <option value="{{ code }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <div class="form-text lang-help">
                       Always downloads audio and runs diarization. Slowest, but best for multi-speaker videos.
                     </div>
                   </div>

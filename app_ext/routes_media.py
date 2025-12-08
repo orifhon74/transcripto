@@ -1,10 +1,8 @@
 # app_ext/routes_media.py
 
-import os
 import json
+import os
 import tempfile
-from datetime import datetime
-from io import BytesIO
 
 from flask import (
     Blueprint,
@@ -13,34 +11,60 @@ from flask import (
     redirect,
     url_for,
     flash,
-    send_file,
 )
 
-from app_ext.transcription import (
+from app_ext.downloads import register_download
+from app_ext.pdf_export import register_pdf_payload
+
+from media_core.summarization import summarize_text
+from media_core.translation import translate_texts, get_supported_languages
+from media_core.formatting import (
+    build_srt_from_segments,
+    transcript_with_speakers,
+)
+from media_core.diarization import (
     transcribe_video_simple,
     transcribe_video_diarized,
     transcribe_audio_simple,
     transcribe_audio_diarized,
-    summarize_text,
-    build_srt_from_segments,
-    transcript_with_speakers,
     diarization_summary,
-    translate_texts,
 )
-from app_ext.downloads import DOWNLOADS, register_download, cleanup_downloads
-from app_ext.jobs import cleanup_jobs
-from app_ext.pdf_export import register_pdf_payload, build_pdf_bytes
 
-bp = Blueprint("media", __name__)
+media_bp = Blueprint("media", __name__)
 
 
-@bp.get("/")
+# -------------------------------------------------------------------
+# Small helper: figure out requested target language
+# - new way:  target_lang form field
+# - old way:  translate_uz checkbox -> "uz"
+# -------------------------------------------------------------------
+def _get_target_lang(form) -> str:
+    """
+    Determine which language (if any) the user asked for.
+
+    Priority:
+      1) form["target_lang"] if present and non-empty
+      2) legacy form["translate_uz"] -> "uz"
+    """
+    lang = (form.get("target_lang") or "").strip().lower()
+    if not lang and form.get("translate_uz"):
+        lang = "uz"
+    return lang
+
+
+# -------------------------------------------------------------------
+# Home page
+# -------------------------------------------------------------------
+@media_bp.get("/")
 def index():
-    return render_template("index.html")
+    supported_langs = get_supported_languages()
+    return render_template("index.html", supported_langs=supported_langs)
 
 
-# ---------- TEXT ----------
-@bp.post("/upload_text")
+# -------------------------------------------------------------------
+# TEXT
+# -------------------------------------------------------------------
+@media_bp.post("/upload_text")
 def upload_text():
     f = request.files.get("text_file")
     if not f:
@@ -50,18 +74,22 @@ def upload_text():
     text = f.read().decode("utf-8", errors="ignore")
     summary = summarize_text(text)
 
+    base = os.path.splitext(f.filename)[0]
     token_text = register_download(
         text.encode("utf-8"),
         "text/plain",
-        f"{os.path.splitext(f.filename)[0]}_original.txt",
+        f"{base}_original.txt",
     )
 
+    # Minimal PDF for text-only: include summary + original as one segment
     segments = [{"start": 0, "end": 0, "text": text}]
+
     token_pdfdata = register_pdf_payload(
         version="Text",
         media_type="text",
         filename=f.filename,
         summary=summary,
+        # For now we don't auto-translate text uploads.
         summary_uz="",
         meta={},
         segments=segments,
@@ -76,15 +104,17 @@ def upload_text():
     )
 
 
-# ---------- VIDEO (simple) ----------
-@bp.post("/upload_video_simple")
+# -------------------------------------------------------------------
+# VIDEO (simple)
+# -------------------------------------------------------------------
+@media_bp.post("/upload_video_simple")
 def upload_video_simple():
     f = request.files.get("video_file")
     if not f:
         flash("No file selected.")
         return redirect(url_for("media.index"))
 
-    translate_flag = bool(request.form.get("translate_uz"))
+    target_lang = _get_target_lang(request.form)
 
     file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
@@ -92,28 +122,40 @@ def upload_video_simple():
         tmp.flush()
         segments, transcript = transcribe_video_simple(tmp.name)
 
-    target_lang = (request.form.get("target_lang") or "").strip()
-
     summary = summarize_text(transcript)
-    summary_tr = ""
-    if target_lang and summary:
-        summary_tr = "\n".join(translate_texts([summary], target_lang))
+    summary_uz = ""  # still named *_uz for template/pdf compatibility
 
+    # Summary translation
+    if target_lang and summary:
+        summary_uz = "\n".join(translate_texts([summary], target_lang))
+
+    # Per-segment translation
     if target_lang and segments:
         seg_texts = [s.get("text", "") for s in segments]
         tr_lines = translate_texts(seg_texts, target_lang)
+
         for s, tr in zip(segments, tr_lines):
-            # you can store by language code for future:
-            # s.setdefault("translations", {})[target_lang] = tr
-            # for now just reuse s["uz"] but rename later
-            s["uz"] = tr  # temporary until we generalize the frontend keys
+            # Keep using "uz" field name for now so result_media.html and PDF stay simple
+            s["uz"] = tr
 
     srt = build_srt_from_segments(segments)
 
     base = os.path.splitext(f.filename)[0]
-    token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
-    token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
+    token_txt = register_download(
+        transcript.encode("utf-8"),
+        "text/plain",
+        f"{base}.txt",
+    )
+    token_srt = register_download(
+        srt.encode("utf-8"),
+        "application/x-subrip",
+        f"{base}.srt",
+    )
+    token_media = register_download(
+        file_bytes,
+        f.mimetype or "video/mp4",
+        f.filename,
+    )
 
     token_pdfdata = register_pdf_payload(
         version="Video — Simple",
@@ -134,23 +176,25 @@ def upload_video_simple():
         meta=None,
         token_txt=token_txt,
         token_srt=token_srt,
-        media_url=url_for("media.download", token=token_media),
+        media_url=url_for("downloads.download", token=token_media),
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
-        show_uz=translate_flag,
+        show_uz=bool(target_lang),  # means "show translated lines"
         token_pdf=token_pdfdata,
     )
 
 
-# ---------- VIDEO (differentiated / diarized) ----------
-@bp.post("/upload_video_diarized")
+# -------------------------------------------------------------------
+# VIDEO (differentiated / diarized)
+# -------------------------------------------------------------------
+@media_bp.post("/upload_video_diarized")
 def upload_video_diarized():
     f = request.files.get("video_file_d")
     if not f:
         flash("No file selected.")
         return redirect(url_for("media.index"))
 
-    translate_flag = bool(request.form.get("translate_uz"))
+    target_lang = _get_target_lang(request.form)
 
     file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
@@ -160,22 +204,36 @@ def upload_video_diarized():
 
     summary = summarize_text(transcript)
     summary_uz = ""
-    if translate_flag and summary:
-        summary_uz = "\n".join(translate_texts_to_uz([summary]))
 
-    if translate_flag and segments:
+    if target_lang and summary:
+        summary_uz = "\n".join(translate_texts([summary], target_lang))
+
+    if target_lang and segments:
         seg_texts = [s.get("text", "") for s in segments]
-        uz_lines = translate_texts_to_uz(seg_texts)
-        for s, uz in zip(segments, uz_lines):
-            s["uz"] = uz
+        tr_lines = translate_texts(seg_texts, target_lang)
+
+        for s, tr in zip(segments, tr_lines):
+            s["uz"] = tr
 
     srt = build_srt_from_segments(segments)
     meta = diarization_summary(segments)
 
     base = os.path.splitext(f.filename)[0]
-    token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
-    token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_media = register_download(file_bytes, f.mimetype or "video/mp4", f.filename)
+    token_txt = register_download(
+        transcript.encode("utf-8"),
+        "text/plain",
+        f"{base}.txt",
+    )
+    token_srt = register_download(
+        srt.encode("utf-8"),
+        "application/x-subrip",
+        f"{base}.srt",
+    )
+    token_media = register_download(
+        file_bytes,
+        f.mimetype or "video/mp4",
+        f.filename,
+    )
 
     token_pdfdata = register_pdf_payload(
         version=f"Video — Differentiated ({mode_used})",
@@ -196,23 +254,25 @@ def upload_video_diarized():
         meta=meta,
         token_txt=token_txt,
         token_srt=token_srt,
-        media_url=url_for("media.download", token=token_media),
+        media_url=url_for("downloads.download", token=token_media),
         media_type="video",
         segments_json=json.dumps(segments, ensure_ascii=False),
-        show_uz=translate_flag,
+        show_uz=bool(target_lang),
         token_pdf=token_pdfdata,
     )
 
 
-# ---------- AUDIO (simple) ----------
-@bp.post("/upload_audio_simple")
+# -------------------------------------------------------------------
+# AUDIO (simple)
+# -------------------------------------------------------------------
+@media_bp.post("/upload_audio_simple")
 def upload_audio_simple():
     f = request.files.get("audio_file")
     if not f:
         flash("No file selected.")
         return redirect(url_for("media.index"))
 
-    translate_flag = bool(request.form.get("translate_uz"))
+    target_lang = _get_target_lang(request.form)
 
     file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
@@ -222,21 +282,35 @@ def upload_audio_simple():
 
     summary = summarize_text(transcript)
     summary_uz = ""
-    if translate_flag and summary:
-        summary_uz = "\n".join(translate_texts_to_uz([summary]))
 
-    if translate_flag and segments:
+    if target_lang and summary:
+        summary_uz = "\n".join(translate_texts([summary], target_lang))
+
+    if target_lang and segments:
         seg_texts = [s.get("text", "") for s in segments]
-        uz_lines = translate_texts_to_uz(seg_texts)
-        for s, uz in zip(segments, uz_lines):
-            s["uz"] = uz
+        tr_lines = translate_texts(seg_texts, target_lang)
+
+        for s, tr in zip(segments, tr_lines):
+            s["uz"] = tr
 
     srt = build_srt_from_segments(segments)
 
     base = os.path.splitext(f.filename)[0]
-    token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
-    token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
+    token_txt = register_download(
+        transcript.encode("utf-8"),
+        "text/plain",
+        f"{base}.txt",
+    )
+    token_srt = register_download(
+        srt.encode("utf-8"),
+        "application/x-subrip",
+        f"{base}.srt",
+    )
+    token_media = register_download(
+        file_bytes,
+        f.mimetype or "audio/wav",
+        f.filename,
+    )
 
     token_pdfdata = register_pdf_payload(
         version="Audio — Simple",
@@ -257,23 +331,25 @@ def upload_audio_simple():
         meta=None,
         token_txt=token_txt,
         token_srt=token_srt,
-        media_url=url_for("media.download", token=token_media),
+        media_url=url_for("downloads.download", token=token_media),
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
-        show_uz=translate_flag,
+        show_uz=bool(target_lang),
         token_pdf=token_pdfdata,
     )
 
 
-# ---------- AUDIO (differentiated / diarized) ----------
-@bp.post("/upload_audio_diarized")
+# -------------------------------------------------------------------
+# AUDIO (differentiated / diarized)
+# -------------------------------------------------------------------
+@media_bp.post("/upload_audio_diarized")
 def upload_audio_diarized():
     f = request.files.get("audio_file_d")
     if not f:
         flash("No file selected.")
         return redirect(url_for("media.index"))
 
-    translate_flag = bool(request.form.get("translate_uz"))
+    target_lang = _get_target_lang(request.form)
 
     file_bytes = f.read()
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
@@ -283,22 +359,36 @@ def upload_audio_diarized():
 
     summary = summarize_text(transcript)
     summary_uz = ""
-    if translate_flag and summary:
-        summary_uz = "\n".join(translate_texts_to_uz([summary]))
 
-    if translate_flag and segments:
+    if target_lang and summary:
+        summary_uz = "\n".join(translate_texts([summary], target_lang))
+
+    if target_lang and segments:
         seg_texts = [s.get("text", "") for s in segments]
-        uz_lines = translate_texts_to_uz(seg_texts)
-        for s, uz in zip(segments, uz_lines):
-            s["uz"] = uz
+        tr_lines = translate_texts(seg_texts, target_lang)
+
+        for s, tr in zip(segments, tr_lines):
+            s["uz"] = tr
 
     srt = build_srt_from_segments(segments)
     meta = diarization_summary(segments)
 
     base = os.path.splitext(f.filename)[0]
-    token_txt = register_download(transcript.encode("utf-8"), "text/plain", f"{base}.txt")
-    token_srt = register_download(srt.encode("utf-8"), "application/x-subrip", f"{base}.srt")
-    token_media = register_download(file_bytes, f.mimetype or "audio/wav", f.filename)
+    token_txt = register_download(
+        transcript.encode("utf-8"),
+        "text/plain",
+        f"{base}.txt",
+    )
+    token_srt = register_download(
+        srt.encode("utf-8"),
+        "application/x-subrip",
+        f"{base}.srt",
+    )
+    token_media = register_download(
+        file_bytes,
+        f.mimetype or "audio/wav",
+        f.filename,
+    )
 
     token_pdfdata = register_pdf_payload(
         version=f"Audio — Differentiated ({mode_used})",
@@ -319,55 +409,9 @@ def upload_audio_diarized():
         meta=meta,
         token_txt=token_txt,
         token_srt=token_srt,
-        media_url=url_for("media.download", token=token_media),
+        media_url=url_for("downloads.download", token=token_media),
         media_type="audio",
         segments_json=json.dumps(segments, ensure_ascii=False),
-        show_uz=translate_flag,
+        show_uz=bool(target_lang),
         token_pdf=token_pdfdata,
     )
-
-
-# ---------- downloads ----------
-@bp.get("/download/<token>")
-def download(token: str):
-    item = DOWNLOADS.get(token)
-    if not item:
-        return "Not found or expired", 404
-
-    return send_file(
-        BytesIO(item["data"]),
-        mimetype=item["mimetype"],
-        as_attachment=True,
-        download_name=item["filename"],
-    )
-
-
-# ---------- PDF download ----------
-@bp.get("/download_pdf/<token>")
-def download_pdf(token: str):
-    item = DOWNLOADS.pop(token, None)
-    if not item:
-        return "Not found or expired", 404
-    try:
-        payload = json.loads(item["data"].decode("utf-8"))
-    except Exception:
-        return "Invalid payload", 400
-
-    pdf_bytes = build_pdf_bytes(payload)
-    base = os.path.splitext(payload.get("filename", "export"))[0]
-    pdf_name = f"{base}.pdf"
-
-    return send_file(
-        BytesIO(pdf_bytes),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=pdf_name,
-    )
-
-
-@bp.get("/healthz")
-def healthz():
-    now = datetime.utcnow()
-    cleanup_downloads(now)
-    cleanup_jobs(now)
-    return "ok", 200

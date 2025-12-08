@@ -128,21 +128,21 @@
       <p class="text-secondary mb-3">{{ version }}</p>
 
       <div class="d-flex justify-content-center flex-wrap btn-row">
-        <a href="{{ url_for('media.download', token=token_txt) }}" class="btn btn-success btn-lg">
+        <a href="{{ url_for('downloads.download', token=token_txt) }}" class="btn btn-success btn-lg">
           ⬇ Transcript (.txt)
         </a>
-        <a href="{{ url_for('media.download', token=token_srt) }}" class="btn btn-primary btn-lg">
+        <a href="{{ url_for('downloads.download', token=token_srt) }}" class="btn btn-primary btn-lg">
           ⬇ Subtitles (.srt)
         </a>
 
         {% if token_pdf %}
-          <a href="{{ url_for('media.download_pdf', token=token_pdf) }}" class="btn btn-warning btn-lg">
+          <a href="{{ url_for('downloads.download_pdf', token=token_pdf) }}" class="btn btn-warning btn-lg">
             ⬇ PDF Report
           </a>
         {% endif %}
 
         <button id="toggle-uz" type="button" class="btn btn-outline-warning btn-lg">
-          🌐 Translations (UZ)
+          🌐 Translations
         </button>
 
         <a href="{{ url_for('media.index') }}" class="btn btn-outline-secondary btn-lg">
@@ -204,8 +204,8 @@
               {% if summary_uz %}
                 <hr class="my-2" />
                 <div class="d-flex align-items-center gap-2 mb-1">
-                  <span class="badge text-bg-warning text-dark">UZ</span>
-                  <strong class="uz-label">Uzbek Summary</strong>
+                  <span class="badge text-bg-warning text-dark">🌐</span>
+                  <strong class="uz-label">Translated Summary</strong>
                 </div>
                 <div style="white-space: pre-wrap; color: var(--uz); font-size:.95rem;">
                   {{ summary_uz }}
