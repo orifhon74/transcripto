@@ -6,12 +6,11 @@ python-dotenv==1.0.1
 
 # YouTube ingest
 yt-dlp==2024.08.06
-yt-dlp
 
 # OpenAI SDK
 openai==1.40.0
 
-# transcription
+# transcription (local)
 faster-whisper==1.0.3
 
 # Fast diarization stack (CPU-friendly, fallback)

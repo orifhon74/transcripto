@@ -1,5 +1,3 @@
-# media_core/diarization.py
-
 import os
 import shlex
 import subprocess
@@ -14,7 +12,7 @@ from pydub import AudioSegment
 from resemblyzer import VoiceEncoder, preprocess_wav
 from spectralcluster import SpectralClusterer
 
-from .whisper_pipeline import run_whisper
+from .whisper_pipeline import run_whisper, run_whisper_diarize_model
 
 
 # --- ffmpeg helper ---
@@ -40,6 +38,10 @@ _HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
 _DIARIZATION_MODE = (os.getenv("DIARIZATION_MODE") or "fast").lower()
 if _DIARIZATION_MODE == "auto":
     _DIARIZATION_MODE = "accurate" if _HF_TOKEN else "fast"
+
+# NEW: allow OpenAI diarization model usage
+DIARIZATION_BACKEND = (os.getenv("DIARIZATION_BACKEND", "cpu") or "cpu").lower()
+# cpu = your existing pipeline; openai = use OpenAI diarize model (if available)
 
 
 def _get_num_spk() -> Optional[int]:
@@ -283,6 +285,24 @@ def transcribe_audio_simple(path: str):
 
 
 def transcribe_video_diarized(path: str):
+    # Option A: OpenAI diarization model (if enabled)
+    if DIARIZATION_BACKEND == "openai":
+        segs, transcript = run_whisper_diarize_model(path)
+        # If no speaker labels came back, fall back to CPU speaker assignment
+        if not any(s.get("speaker") for s in segs):
+            mode, turns = diarize_auto(path)
+            segs = assign_speakers_from_turns(segs, turns)
+            return segs, transcript, ("minimal" if mode == "off" else mode)
+        # Normalize speakers to S1,S2... if needed
+        raw = [s.get("speaker") for s in segs if s.get("speaker")]
+        uniq = {x for x in raw if x}
+        mapping = {lab: f"S{idx+1}" for idx, lab in enumerate(sorted(uniq))}
+        for s in segs:
+            if s.get("speaker"):
+                s["speaker"] = mapping.get(s["speaker"], "S1")
+        return segs, transcript, "openai"
+
+    # Option B: CPU diarization (your current approach)
     segs, transcript = run_whisper(path)
     mode, turns = diarize_auto(path)
     segs = assign_speakers_from_turns(segs, turns)
@@ -290,6 +310,20 @@ def transcribe_video_diarized(path: str):
 
 
 def transcribe_audio_diarized(path: str):
+    if DIARIZATION_BACKEND == "openai":
+        segs, transcript = run_whisper_diarize_model(path)
+        if not any(s.get("speaker") for s in segs):
+            mode, turns = diarize_auto(path)
+            segs = assign_speakers_from_turns(segs, turns)
+            return segs, transcript, ("minimal" if mode == "off" else mode)
+        raw = [s.get("speaker") for s in segs if s.get("speaker")]
+        uniq = {x for x in raw if x}
+        mapping = {lab: f"S{idx+1}" for idx, lab in enumerate(sorted(uniq))}
+        for s in segs:
+            if s.get("speaker"):
+                s["speaker"] = mapping.get(s["speaker"], "S1")
+        return segs, transcript, "openai"
+
     segs, transcript = run_whisper(path)
     mode, turns = diarize_auto(path)
     segs = assign_speakers_from_turns(segs, turns)
