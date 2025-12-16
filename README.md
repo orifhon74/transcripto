@@ -80,24 +80,30 @@ Frontend
 ⚙️ Setup Instructions
 
 1. Clone the repo
-	•	git clone https://github.com/orifhon74/transcripto.git
-	•	cd transcripto
+```
+git clone https://github.com/orifhon74/transcripto.git
+cd transcripto
+```
 2. Create the virtual environment
-	•	python3 -m venv .venv
-	•	source .venv/bin/activate
-3. Install dependencies
+```
+python3 -m venv .venv
+source .venv/bin/activate
+```
+4. Install dependencies
+```
 	•	pip install -r requirements.txt
-4. (Optional) Environment Variables
+```
+6. (Optional) Environment Variables
 	•	Create a .env file:
 ```
-		  SECRET_KEY=dev
-		  WHISPER_MODEL=base
-		  DEVICE=cpu
-		  COMPUTE_TYPE=int8
+SECRET_KEY=dev
+WHISPER_MODEL=base
+DEVICE=cpu
+COMPUTE_TYPE=int8
 		      
-		  # Optional (for better diarization)
-		  HUGGINGFACE_TOKEN=your_token_here
-		  DIARIZATION_MODE=auto
+# Optional (for better diarization)
+HUGGINGFACE_TOKEN=your_token_here
+DIARIZATION_MODE=auto
 ```
 6. Run the app
 	•	python app.py
