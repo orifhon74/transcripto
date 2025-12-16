@@ -106,7 +106,9 @@ HUGGINGFACE_TOKEN=your_token_here
 DIARIZATION_MODE=auto
 ```
 6. Run the app
-	•	python app.py
+```
+python app.py
+```
 
 Open:
 👉 http://localhost:5050
