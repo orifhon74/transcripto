@@ -1,4 +1,4 @@
-🎙️ Deepfake Audio / Media Transcription & Analysis
+🎙️ Audio / Video / Media Transcription & Analysis
 
 A full-stack media transcription and analysis platform built with Python + Flask, supporting video, audio, text, YouTube ingestion, speaker diarization (beta), multi-language translation, and PDF report generation.
 
