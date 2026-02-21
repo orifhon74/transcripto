@@ -148,10 +148,8 @@ This project was built to demonstrate:
 
 ## 📸 Screenshots
 
-### Home & Inputs
+### Home
 ![Home](screenshots/home.png)
-![File Input](screenshots/file_input.png)
-![YouTube Input](screenshots/youtube_link_input.png)
 
 ### Transcription Results
 ![Simple Media Result](screenshots/simple_media_result.png)
@@ -167,8 +165,6 @@ This project was built to demonstrate:
 
 ### PDF Reports
 ![PDF Report](screenshots/pdf_report.png)
-![Translated PDF](screenshots/translations_pdf_report.png)
-![Diarized PDF](screenshots/differentiated_speakers_pdf_report.png)
 
 ⸻
 
