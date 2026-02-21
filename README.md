@@ -159,7 +159,6 @@ This project was built to demonstrate:
 
 ### Summaries & Translations
 ![Summary](screenshots/summary.png)
-![Translated Summary](screenshots/translations_summary.png)
 
 ### PDF Reports
 ![PDF Report](screenshots/pdf_report.png)
