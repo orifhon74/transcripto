@@ -153,7 +153,6 @@ This project was built to demonstrate:
 
 ### Transcription Results
 ![Simple Media Result](screenshots/simple_media_result.png)
-![YouTube Result](screenshots/youtube_link_result.png)
 
 ### Speaker Diarization (Beta)
 ![Differentiated Result](screenshots/differentiated_speakers_result.png)
@@ -161,7 +160,6 @@ This project was built to demonstrate:
 ### Summaries & Translations
 ![Summary](screenshots/summary.png)
 ![Translated Summary](screenshots/translations_summary.png)
-![Translated Result](screenshots/translations_result.png)
 
 ### PDF Reports
 ![PDF Report](screenshots/pdf_report.png)
