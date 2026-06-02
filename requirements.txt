@@ -17,6 +17,7 @@ faster-whisper==1.0.3
 webrtcvad==2.0.10
 resemblyzer==0.1.4
 spectralcluster==0.2.4
+scikit-learn==1.4.2   # KMeans fallback when spectral clustering is unavailable
 pydub==0.25.1
 
 # Fix for OpenAI SDK compatibility

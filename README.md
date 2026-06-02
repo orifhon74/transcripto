@@ -1,6 +1,6 @@
 🎙️ Audio / Video / Media Transcription & Analysis
 
-A full-stack media transcription and analysis platform built with Python + Flask, supporting video, audio, text, YouTube ingestion, speaker diarization (beta), multi-language translation, and PDF report generation.
+A full-stack media transcription and analysis platform built with Python + Flask, supporting video, audio, text, YouTube ingestion, speaker diarization, multi-language translation, and PDF report generation.
 
 This project focuses on real-world media processing pipelines, not just a demo UI.
 
@@ -27,15 +27,21 @@ Core Features
 
 ⸻
 
-🗣️ Speaker Diarization (Beta)
-	•	Supports speaker-differentiated transcripts
-	•	Automatically detects and labels speakers (S1, S2, …)
-	•	Uses:
-	•	Fast CPU diarization (VAD + embeddings + clustering)
-	•	Optional PyAnnote pipeline (if HuggingFace token is provided)
+🗣️ Speaker Diarization
 
-⚠️ Diarization is marked Beta
-Accuracy varies depending on audio quality, speaker overlap, and recording conditions.
+Speaker-differentiated transcripts with automatic speaker detection and labeling (S1, S2, …). Two engines, chosen automatically:
+
+	•	Accurate (primary): pyannote/speaker-diarization-3.1 — used whenever a HuggingFace token is configured. Best quality, GPU-accelerated when available.
+	•	Fast (local fallback): a fully-local CPU pipeline, rebuilt for accuracy:
+		1.	WebRTC VAD finds speech regions
+		2.	short sliding windows (1.5s / 0.75s hop) are embedded with Resemblyzer — keeping each speaker's voiceprint clean instead of smearing two speakers across one long region
+		3.	embeddings are L2-normalized and the speaker count is estimated from the eigengap of the affinity matrix (so single-speaker audio stays single)
+		4.	spectral clustering assigns windows to speakers (KMeans fallback)
+		5.	speakers are mapped onto ASR segments by majority overlap, then short flickers are smoothed and consecutive same-speaker lines merged
+
+Set `DIARIZATION_MODE` to `auto` (default), `accurate`, `fast`, or `off`. Force a speaker count with `NUM_SPK`, or bound it with `MIN_SPK` / `MAX_SPK`.
+
+⚠️ Accuracy still varies with audio quality, speaker overlap, and recording conditions.
 
 ⸻
 
@@ -76,9 +82,11 @@ Backend
 	•	ThreadPoolExecutor (async jobs)
 
 Frontend
-	•	Server-rendered HTML (Jinja2)
-	•	Bootstrap-based UI
-	•	Progressive enhancement (no JS framework dependency)
+	•	Modern, custom-designed UI (no Bootstrap) with a single shared stylesheet (static/css/app.css)
+	•	Unified "studio" home: one card with a source selector (Upload / YouTube / Text), drag-and-drop upload, mode toggle, and language picker
+	•	Asynchronous job flow: uploads POST to /jobs and the page shows a live progress bar, stage label, and streaming log while transcription runs, then redirects to the result page
+	•	Interactive result page: click-to-seek transcript synced to the player, color-coded speakers, toggleable translations
+	•	Vanilla JS, no framework dependency
 
 ⸻
 
@@ -117,6 +125,16 @@ python app.py
 
 Open:
 👉 http://localhost:5050
+
+⸻
+
+🧪 Running Tests
+
+Unit tests cover the deterministic pipeline logic (speaker assignment, smoothing, speaker-count estimation, SRT building, VTT parsing). They stub the heavy native dependencies, so no models or GPU are required:
+
+```
+python -m unittest discover -s tests
+```
 
 ⸻
 
@@ -177,7 +195,8 @@ This project was built to demonstrate:
 | Video Transcription    | ✅ Supported |
 | Audio Transcription    | ✅ Supported |
 | YouTube Ingest         | ✅ Supported |
-| Speaker Diarization    | ⚠️ Beta |
+| Speaker Diarization    | ✅ pyannote + CPU fallback |
+| Async Job + Live Progress | ✅ Supported |
 | Multi-language Output  | ✅ Supported |
 | PDF Reports            | ✅ Supported |
 | Async Jobs             | ✅ Supported |

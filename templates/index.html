@@ -1,468 +1,341 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>AI Transcription & Summarization</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    body {
-      background: radial-gradient(circle at top, #1d2671 0, #020617 40%, #020617 100%);
-      min-height: 100vh;
-      color: #e5e7eb;
-    }
-    .app-shell {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    .card {
-      border: none;
-      border-radius: 1.1rem;
-      box-shadow: 0 8px 20px rgba(0,0,0,.4);
-      background: rgba(15,23,42,.95);
-      backdrop-filter: blur(10px);
-    }
-    .card-header {
-      background: transparent;
-      border-bottom: 1px solid rgba(148,163,184,.3);
-    }
-    .pill-tabs .nav-link {
-      border-radius: 999px;
-      padding: .25rem .9rem;
-      font-size: .9rem;
-      color: #e5e7eb;
-    }
-    .pill-tabs .nav-link.active {
-      background: #3b82f6;
-      color: #f9fafb;
-    }
-    h1 { font-weight: 700; }
-    .sub { color: #e5e7eb; }
-
-    .notice {
-      background: rgba(15,23,42,.9);
-      border-radius: .9rem;
-      border: 1px solid rgba(148,163,184,.5);
-      color: #e5e7eb;
-    }
-    .notice small { color: #cbd5e1; }
-    .notice code {
-      background: rgba(15,23,42,.8);
-      padding: .15rem .4rem;
-      border-radius: .35rem;
-      font-size: .85rem;
-      color: #e5e7eb;
-    }
-
-    .section-title {
-      text-transform: uppercase;
-      font-size: .8rem;
-      letter-spacing: .08em;
-      color: #e2e8f0;
-    }
-
-    /* Bootstrappy text helpers on dark bg */
-    .text-muted,
-    .text-secondary,
-    .form-text {
-      color: #cbd5e1 !important;
-    }
-
-    .form-label,
-    .form-check-label {
-      color: #e5e7eb !important;
-    }
-
-    /* Inputs on dark background */
-    input, textarea, select {
-      color: #e5e7eb !important;
-      background: #020617 !important;
-      border-color: #475569 !important;
-    }
-    input::placeholder {
-      color: #9ca3af !important;
-    }
-    select:focus,
-    input:focus {
-      box-shadow: 0 0 0 .15rem rgba(59,130,246,.4) !important;
-      border-color: #3b82f6 !important;
-    }
-
-    /* Buttons */
-    .btn-rounded {
-      border-radius: 999px;
-      font-weight: 500;
-    }
-    .btn-outline-light,
-    .btn-outline-secondary {
-      color: #e5e7eb !important;
-      border-color: #94a3b8 !important;
-    }
-    .btn-outline-light:hover,
-    .btn-outline-secondary:hover {
-      background: #1f2937 !important;
-    }
-
-    /* Make checkboxes visible on dark backgrounds */
-    .form-check-input {
-      background-color: #0f172a !important;
-      border: 2px solid #3b82f6 !important;
-    }
-    .form-check-input:checked {
-      background-color: #3b82f6 !important;
-      border-color: #3b82f6 !important;
-    }
-    .form-check-input:checked[type="checkbox"] {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='white' d='M16.707 5.293a1 1 0 0 1 0 1.414l-7.414 7.414a1 1 0 0 1-1.414 0L3.293 10.12a1 1 0 1 1 1.414-1.414l3.172 3.17 6.707-6.707a1 1 0 0 1 1.414 0z'/%3E%3C/svg%3E") !important;
-    }
-
-    .lang-label {
-      font-size: .9rem;
-      font-weight: 500;
-    }
-    .lang-help {
-      font-size: .8rem;
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transcripto — Transcription & Speaker Analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet" />
 </head>
 <body>
-  <div class="container py-5 app-shell">
-    <!-- Header -->
-    <header class="mb-4 text-center">
-      <h1>AI Transcription & Summarization</h1>
-      <p class="sub mb-3">
-        Upload <strong>video</strong>, <strong>audio</strong>, or <strong>text</strong> — or paste a <strong>YouTube link</strong> —
-        to get transcripts and summaries.
-      </p>
+  <div class="container">
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+          </svg>
+        </span>
+        Transcripto
+      </div>
+      <div class="meta">Local Whisper · Speaker Diarization · Multi-language</div>
     </header>
 
-    <!-- Processing notice -->
-    <section class="notice p-3 p-md-3 mb-4 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
-      <div>
-        <span class="fw-semibold">⏱ Processing time</span><br>
-        <small>
-          On this CPU-only server, expect roughly <strong>1–3 minutes per minute of media</strong>.
-          <br>
-          <strong>Simple</strong> = faster. <strong>Differentiated (Beta)</strong> = slower (speaker separation).
-        </small>
+    <!-- Hero -->
+    <section class="hero">
+      <h1>Turn <span class="accent">audio &amp; video</span> into clean, speaker-labeled transcripts</h1>
+      <p>Upload a file, paste a YouTube link, or drop in text. Get transcripts, speaker separation, summaries, translations and downloadable reports.</p>
+    </section>
+
+    <!-- Studio card -->
+    <section class="card card-pad">
+      <!-- Input form view -->
+      <div id="studio">
+        <!-- Source selector -->
+        <div class="segmented full" id="sourceTabs" role="tablist">
+          <button type="button" class="active" data-source="file">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Upload File
+          </button>
+          <button type="button" data-source="youtube">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="3"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
+            YouTube
+          </button>
+          <button type="button" data-source="text">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
+            Text
+          </button>
+        </div>
+
+        <!-- FILE panel -->
+        <div class="panel active" data-panel="file">
+          <div class="field">
+            <label class="dropzone" id="fileDrop">
+              <input type="file" id="fileInput" accept=".mp4,.mov,.avi,.mkv,.webm,.wav,.mp3,.m4a,.flac,.ogg" hidden>
+              <div class="dz-prompt">
+                <div class="dz-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div class="dz-title">Drop an audio or video file, or click to browse</div>
+                <div class="dz-sub">MP4, MOV, MKV, WEBM · WAV, MP3, M4A, FLAC, OGG</div>
+              </div>
+              <div class="dz-file">
+                <span class="badge-ok">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <span id="fileName">file</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- YOUTUBE panel -->
+        <div class="panel" data-panel="youtube">
+          <div class="field">
+            <label class="field-label">YouTube URL</label>
+            <input type="url" class="input" id="ytUrl" placeholder="https://www.youtube.com/watch?v=...">
+            <div class="help">Simple mode prefers existing captions; speaker mode always downloads and analyzes the audio.</div>
+          </div>
+        </div>
+
+        <!-- TEXT panel -->
+        <div class="panel" data-panel="text">
+          <div class="field">
+            <label class="dropzone" id="textDrop">
+              <input type="file" id="textInput" accept=".txt" hidden>
+              <div class="dz-prompt">
+                <div class="dz-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+                </div>
+                <div class="dz-title">Drop a .txt file, or click to browse</div>
+                <div class="dz-sub">Meeting notes, articles, transcripts — we'll summarize it</div>
+              </div>
+              <div class="dz-file">
+                <span class="badge-ok">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <span id="textName">file</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Options -->
+        <div class="row-2">
+          <div class="field" id="modeField">
+            <label class="field-label">Mode</label>
+            <div class="segmented full" id="modeTabs">
+              <button type="button" class="active" data-mode="simple">Simple</button>
+              <button type="button" data-mode="diarized">Separate speakers</button>
+            </div>
+            <div class="help" id="modeHelp">Fastest path: transcript &amp; summary only.</div>
+          </div>
+          <div class="field">
+            <label class="field-label">Translation <span style="text-transform:none;font-weight:500;">(optional)</span></label>
+            <select class="select" id="langSelect">
+              <option value="">None — keep original language</option>
+              {% for code, label in supported_langs.items() %}
+                <option value="{{ code }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="help">Adds a translated summary and per-line translations.</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <button type="button" class="btn btn-primary btn-lg btn-block" id="runBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none"/></svg>
+            <span id="runLabel">Transcribe</span>
+          </button>
+          <div class="help" id="formError" style="color:#c0392b; display:none;"></div>
+        </div>
+
+        <div class="notice">
+          <span class="ni">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </span>
+          <div>
+            <b>Processing time:</b> on a CPU-only server expect roughly <b>1–3 minutes per minute</b> of media.
+            Speaker separation is slower. Keep clips short while testing.
+          </div>
+        </div>
       </div>
-      <div class="text-md-end">
-        <small>
-          Tip: keep clips short when testing.
-          Use <code>Simple</code> first unless you really need speaker labels.
-        </small>
+
+      <!-- Progress view -->
+      <div class="progress-view" id="progress">
+        <div class="spinner"></div>
+        <div class="progress-stage" id="stage">Starting…</div>
+        <div class="progress-sub" id="subStage">Your file is being processed. This can take a few minutes.</div>
+        <div class="bar"><span id="barFill"></span></div>
+        <div class="log" id="logBox"></div>
+        <div style="margin-top:18px;">
+          <button type="button" class="btn btn-ghost" id="cancelBtn">Cancel</button>
+        </div>
       </div>
     </section>
 
-    <div class="row g-4">
-      <!-- Media (Video/Audio) -->
-      <div class="col-lg-7">
-        <!-- Video -->
-        <div class="card mb-4">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <div>
-              <div class="section-title mb-1">Media</div>
-              <h5 class="mb-0" style="color:powderblue;">🎥 Video Transcription</h5>
-            </div>
-            <ul class="nav nav-pills pill-tabs" id="videoTabs" role="tablist">
-              <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="video-simple-tab" data-bs-toggle="tab"
-                        data-bs-target="#video-simple" type="button" role="tab">
-                  Simple
-                </button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="video-diff-tab" data-bs-toggle="tab"
-                        data-bs-target="#video-diff" type="button" role="tab">
-                  Differentiated
-                </button>
-              </li>
-            </ul>
-          </div>
-          <div class="card-body">
-            <p class="text-muted mb-2">
-              Simple: just transcript + summary. Differentiated: separates speakers when possible.
-            </p>
-
-            <div class="tab-content" id="videoTabsContent">
-              <!-- Simple -->
-              <div class="tab-pane fade show active" id="video-simple" role="tabpanel">
-                <form action="{{ url_for('media.upload_video_simple') }}" method="post"
-                      enctype="multipart/form-data" class="mt-2">
-                  <div class="mb-2">
-                    <label class="form-label">Video file</label>
-                    <input type="file" name="video_file" class="form-control"
-                           accept=".mp4,.avi,.mov,.mkv" required>
-                    <div class="form-text">Best results with clear speech and .mp4 files.</div>
-                  </div>
-
-                  <div class="mb-3">
-                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
-                    <select class="form-select" name="target_lang">
-                      <option value="">None (keep original language)</option>
-                      {% for code, label in supported_langs.items() %}
-                        <option value="{{ code }}">{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                    <div class="form-text lang-help">
-                      Adds a translated summary and translated lines under each segment.
-                    </div>
-                  </div>
-
-                  <button type="submit" class="btn btn-primary btn-rounded w-100">
-                    Run Simple Transcription
-                  </button>
-                </form>
-              </div>
-
-              <!-- Differentiated -->
-              <div class="tab-pane fade" id="video-diff" role="tabpanel">
-                <form action="{{ url_for('media.upload_video_diarized') }}" method="post"
-                      enctype="multipart/form-data" class="mt-2">
-                  <div class="mb-2">
-                    <label class="form-label">Video file</label>
-                    <input type="file" name="video_file_d" class="form-control"
-                           accept=".mp4,.avi,.mov,.mkv" required>
-                    <div class="form-text">Use for multi-speaker content, interviews, podcasts.</div>
-                  </div>
-
-                  <div class="mb-3">
-                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
-                    <select class="form-select" name="target_lang">
-                      <option value="">None (keep original language)</option>
-                      {% for code, label in supported_langs.items() %}
-                        <option value="{{ code }}">{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                    <div class="form-text lang-help">
-                      Diarization + translations is the slowest path. Use only when needed.
-                    </div>
-                  </div>
-
-                  <button type="submit" class="btn btn-outline-light btn-rounded w-100">
-                    Run Differentiated Transcription
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Audio -->
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <div>
-              <div class="section-title mb-1">Media</div>
-              <h5 class="mb-0" style="color:powderblue;">🎧 Audio Transcription</h5>
-            </div>
-            <ul class="nav nav-pills pill-tabs" id="audioTabs" role="tablist">
-              <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="audio-simple-tab" data-bs-toggle="tab"
-                        data-bs-target="#audio-simple" type="button" role="tab">
-                  Simple
-                </button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="audio-diff-tab" data-bs-toggle="tab"
-                        data-bs-target="#audio-diff" type="button" role="tab">
-                  Differentiated
-                </button>
-              </li>
-            </ul>
-          </div>
-          <div class="card-body">
-            <p class="text-muted mb-2">
-              Works best with mono, clean speech. Music-heavy tracks will be worse.
-            </p>
-
-            <div class="tab-content" id="audioTabsContent">
-              <!-- Simple -->
-              <div class="tab-pane fade show active" id="audio-simple" role="tabpanel">
-                <form action="{{ url_for('media.upload_audio_simple') }}" method="post"
-                      enctype="multipart/form-data" class="mt-2">
-                  <div class="mb-2">
-                    <label class="form-label">Audio file</label>
-                    <input type="file" name="audio_file" class="form-control"
-                           accept=".wav,.mp3,.flac" required>
-                    <div class="form-text">Recommended: .wav, 16kHz mono if possible.</div>
-                  </div>
-
-                  <div class="mb-3">
-                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
-                    <select class="form-select" name="target_lang">
-                      <option value="">None (keep original language)</option>
-                      {% for code, label in supported_langs.items() %}
-                        <option value="{{ code }}">{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-
-                  <button type="submit" class="btn btn-primary btn-rounded w-100">
-                    Run Simple Transcription
-                  </button>
-                </form>
-              </div>
-
-              <!-- Differentiated -->
-              <div class="tab-pane fade" id="audio-diff" role="tabpanel">
-                <form action="{{ url_for('media.upload_audio_diarized') }}" method="post"
-                      enctype="multipart/form-data" class="mt-2">
-                  <div class="mb-2">
-                    <label class="form-label">Audio file</label>
-                    <input type="file" name="audio_file_d" class="form-control"
-                           accept=".wav,.mp3,.flac" required>
-                    <div class="form-text">Use for meetings, podcasts, multi-speaker audio.</div>
-                  </div>
-
-                  <div class="mb-3">
-                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
-                    <select class="form-select" name="target_lang">
-                      <option value="">None (keep original language)</option>
-                      {% for code, label in supported_langs.items() %}
-                        <option value="{{ code }}">{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-
-                  <button type="submit" class="btn btn-outline-light btn-rounded w-100">
-                    Run Differentiated Transcription
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
-
+    <!-- Feature strip -->
+    <div class="features">
+      <div class="feature">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <div class="ft">Accurate transcription</div>
+        <div class="fs">Local Whisper with word-level timestamps.</div>
       </div>
-
-      <!-- Text + YouTube -->
-      <div class="col-lg-5">
-        <!-- Text -->
-        <div class="card mb-4">
-          <div class="card-header">
-            <div class="section-title mb-1">Text</div>
-            <h5 class="mb-0" style="color:powderblue;">📝 Text Summarization</h5>
-          </div>
-          <div class="card-body">
-            <p class="text-muted">
-              Upload a <code>.txt</code> file to get a concise summary. Good for meeting notes, blog posts, etc.
-            </p>
-            <form action="{{ url_for('media.upload_text') }}" method="post"
-                  enctype="multipart/form-data" class="mt-2">
-              <div class="mb-3">
-                <label class="form-label">Text file</label>
-                <input type="file" name="text_file" class="form-control" accept=".txt" required>
-              </div>
-              <button type="submit" class="btn btn-success btn-rounded w-100">
-                Summarize Text
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <!-- YouTube -->
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <div>
-              <div class="section-title mb-1">Online</div>
-              <h5 class="mb-0" style="color:powderblue;">▶️ YouTube Ingest</h5>
-            </div>
-            <ul class="nav nav-pills pill-tabs" id="ytTabs" role="tablist">
-              <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="yt-simple-tab" data-bs-toggle="tab"
-                        data-bs-target="#yt-simple" type="button" role="tab">
-                  Simple
-                </button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="yt-diff-tab" data-bs-toggle="tab"
-                        data-bs-target="#yt-diff" type="button" role="tab">
-                  Differentiated
-                </button>
-              </li>
-            </ul>
-          </div>
-          <div class="card-body">
-            <p class="text-muted mb-2">
-              Paste a full YouTube URL. Simple mode prefers captions; Differentiated runs diarization on the audio.
-            </p>
-
-            <div class="tab-content" id="ytTabsContent">
-              <!-- Simple -->
-              <div class="tab-pane fade show active" id="yt-simple" role="tabpanel">
-                <form action="{{ url_for('youtube.ingest_youtube_simple') }}" method="post" class="mt-2">
-                  <div class="mb-2">
-                    <label class="form-label">YouTube URL</label>
-                    <input type="url" name="youtube_url" class="form-control"
-                           placeholder="https://www.youtube.com/watch?v=..." required>
-                  </div>
-                  <div class="mb-3">
-                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
-                    <select class="form-select" name="target_lang">
-                      <option value="">None (keep original language)</option>
-                      {% for code, label in supported_langs.items() %}
-                        <option value="{{ code }}">{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                    <div class="form-text lang-help">
-                      Uses English captions when available, otherwise downloads and transcribes audio.
-                    </div>
-                  </div>
-                  <button type="submit" class="btn btn-primary btn-rounded w-100">
-                    Ingest YouTube (Simple)
-                  </button>
-                </form>
-              </div>
-
-              <!-- Differentiated -->
-              <div class="tab-pane fade" id="yt-diff" role="tabpanel">
-                <form action="{{ url_for('youtube.ingest_youtube_diarized') }}" method="post" class="mt-2">
-                  <div class="mb-2">
-                    <label class="form-label">YouTube URL</label>
-                    <input type="url" name="youtube_url_d" class="form-control"
-                           placeholder="https://www.youtube.com/watch?v=..." required>
-                  </div>
-                  <div class="mb-3">
-                    <div class="lang-label mb-1" style="color:white;">Translations (optional)</div>
-                    <select class="form-select" name="target_lang">
-                      <option value="">None (keep original language)</option>
-                      {% for code, label in supported_langs.items() %}
-                        <option value="{{ code }}">{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                    <div class="form-text lang-help">
-                      Always downloads audio and runs diarization. Slowest, but best for multi-speaker videos.
-                    </div>
-                  </div>
-                  <button type="submit" class="btn btn-outline-light btn-rounded w-100">
-                    Ingest YouTube (Differentiated)
-                  </button>
-                </form>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
+      <div class="feature">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div class="ft">Speaker separation</div>
+        <div class="fs">pyannote 3.1 with a local CPU fallback.</div>
+      </div>
+      <div class="feature">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+        <div class="ft">Translation</div>
+        <div class="fs">Summaries &amp; lines in 10+ languages.</div>
+      </div>
+      <div class="feature">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+        <div class="ft">Exports</div>
+        <div class="fs">.txt, .srt and polished PDF reports.</div>
       </div>
     </div>
+
+    <footer class="foot">Transcripto · built with Flask &amp; Whisper</footer>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    function lockForm(e) {
-      const form = e.target.closest('form');
-      const btn = form.querySelector('button[type="submit"]');
-      if (!btn) return;
-      btn.disabled = true;
-      const original = btn.innerHTML;
-      btn.dataset.original = original;
-      btn.innerHTML = `
-        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-        Processing…
-      `;
+    const VIDEO_EXT = ["mp4","mov","avi","mkv","webm"];
+    const AUDIO_EXT = ["wav","mp3","m4a","flac","ogg","aac","opus"];
+
+    const state = { source: "file", mode: "simple", file: null, textFile: null };
+    const $ = (id) => document.getElementById(id);
+
+    // ---- source tabs ----
+    document.querySelectorAll("#sourceTabs button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#sourceTabs button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.source = btn.dataset.source;
+        document.querySelectorAll("[data-panel]").forEach(p =>
+          p.classList.toggle("active", p.dataset.panel === state.source));
+        $("modeField").style.display = (state.source === "text") ? "none" : "block";
+        $("runLabel").textContent = (state.source === "text") ? "Summarize" : "Transcribe";
+      });
+    });
+
+    // ---- mode tabs ----
+    document.querySelectorAll("#modeTabs button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#modeTabs button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.mode = btn.dataset.mode;
+        $("modeHelp").textContent = state.mode === "simple"
+          ? "Fastest path: transcript & summary only."
+          : "Detects and labels each speaker. Slower, best for interviews & meetings.";
+      });
+    });
+
+    // ---- dropzones ----
+    function wireDrop(zoneId, inputId, nameId, stateKey) {
+      const zone = $(zoneId), input = $(inputId), name = $(nameId);
+      zone.addEventListener("click", () => input.click());
+      input.addEventListener("change", () => setFile(input.files[0]));
+      ["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => {
+        e.preventDefault(); zone.classList.add("dragover");
+      }));
+      ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => {
+        e.preventDefault(); zone.classList.remove("dragover");
+      }));
+      zone.addEventListener("drop", e => {
+        if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+      });
+      function setFile(f) {
+        if (!f) return;
+        state[stateKey] = f;
+        name.textContent = f.name;
+        zone.classList.add("has-file");
+        hideError();
+      }
     }
-    document.querySelectorAll('form').forEach(f => {
-      f.addEventListener('submit', lockForm);
+    wireDrop("fileDrop", "fileInput", "fileName", "file");
+    wireDrop("textDrop", "textInput", "textName", "textFile");
+
+    // ---- error helpers ----
+    function showError(msg) { const e = $("formError"); e.textContent = msg; e.style.display = "block"; }
+    function hideError() { $("formError").style.display = "none"; }
+
+    function kindFor() {
+      if (state.source === "text") return "text";
+      if (state.source === "youtube") return "youtube_" + state.mode;
+      const ext = (state.file && state.file.name.split(".").pop() || "").toLowerCase();
+      const media = VIDEO_EXT.includes(ext) ? "video" : "audio";
+      return media + "_" + state.mode;
+    }
+
+    // ---- run ----
+    $("runBtn").addEventListener("click", start);
+
+    async function start() {
+      hideError();
+      const fd = new FormData();
+      fd.append("kind", kindFor());
+      fd.append("target_lang", $("langSelect").value);
+
+      if (state.source === "youtube") {
+        const url = $("ytUrl").value.trim();
+        if (!url) return showError("Please paste a YouTube URL.");
+        fd.append("youtube_url", url);
+      } else if (state.source === "text") {
+        if (!state.textFile) return showError("Please choose a .txt file.");
+        fd.append("file", state.textFile);
+      } else {
+        if (!state.file) return showError("Please choose an audio or video file.");
+        fd.append("file", state.file);
+      }
+
+      $("studio").style.display = "none";
+      $("progress").classList.add("active");
+      setStage("Uploading…", "Sending your file to the server.", 3);
+
+      let res;
+      try {
+        res = await fetch("/jobs", { method: "POST", body: fd });
+      } catch (e) { return fail("Upload failed. Is the server running?"); }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        return fail(j.error || "Could not start the job.");
+      }
+      const data = await res.json();
+      poll(data.job_id);
+    }
+
+    function setStage(stage, sub, pct) {
+      $("stage").textContent = stage;
+      if (sub) $("subStage").textContent = sub;
+      if (pct != null) $("barFill").style.width = pct + "%";
+    }
+
+    function fail(msg) {
+      $("progress").classList.remove("active");
+      $("studio").style.display = "block";
+      showError(msg);
+    }
+
+    let timer = null;
+    function poll(jobId) {
+      timer = setInterval(async () => {
+        let res;
+        try { res = await fetch("/jobs/" + jobId); }
+        catch (e) { return; }
+        if (!res.ok) return;
+        const job = await res.json();
+
+        setStage(job.stage || "Processing…", null, job.progress);
+        renderLog(job.logs || []);
+
+        if (job.status === "done" && job.result_url) {
+          clearInterval(timer);
+          setStage("Done", "Redirecting to your results…", 100);
+          window.location.href = job.result_url;
+        } else if (job.status === "error") {
+          clearInterval(timer);
+          fail("Processing failed: " + (job.error || "unknown error"));
+        }
+      }, 1500);
+    }
+
+    function renderLog(logs) {
+      const box = $("logBox");
+      box.innerHTML = logs.slice(-8).map(l => "<div>" + l.replace(/</g,"&lt;") + "</div>").join("");
+      box.scrollTop = box.scrollHeight;
+    }
+
+    $("cancelBtn").addEventListener("click", () => {
+      if (timer) clearInterval(timer);
+      $("progress").classList.remove("active");
+      $("studio").style.display = "block";
     });
   </script>
 </body>

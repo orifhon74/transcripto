@@ -27,7 +27,8 @@ class Config:
     # ---- Diarization ----
     # cpu | openai
     DIARIZATION_BACKEND = os.getenv("DIARIZATION_BACKEND", "cpu")
-    DIARIZATION_MODE = os.getenv("DIARIZATION_MODE", "fast")  # off|fast|accurate|auto
+    # auto -> pyannote when a HuggingFace token is present, else the CPU pipeline
+    DIARIZATION_MODE = os.getenv("DIARIZATION_MODE", "auto")  # off|fast|accurate|auto
 
     # ---- PDF Fonts ----
     # Put DejaVuSans.ttf under static/fonts and set this path accordingly
