@@ -173,6 +173,8 @@ a:hover { color: var(--accent-600); }
   text-align: center;
   cursor: pointer;
   transition: all .18s ease;
+  display: block;
+  width: 100%;
 }
 .dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
 .dropzone.dragover {
